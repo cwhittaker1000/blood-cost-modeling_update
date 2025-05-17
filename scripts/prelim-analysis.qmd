@@ -10,51 +10,102 @@ format:
     toc: true
     toc-depth: 2
     number-sections: true
-    theme: cerulean
+    theme: cosmo
 ---
 
 # Motivation
 
-*A lot of this has been heavily inspired by [Simon's blog post](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/). I thank Simon and Dan for our previous conversations.*
-
+*I'd like to thank Dan and Simon for our conversations about cost modeling. This work heavily draws from [Simon's blog post on pooled nasal swabs](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/).*
 
 We'd like to make a cost-estimate to run a blood biosurveillance system in the US for a year at a sequencing depth capable of detecting a novel-HIV-like pathogen at X% cumulative incidence.
 
 # Background
 
-Let's first breakdown what exactly it means to detect some pathogen in the population. Overall the process we're interested in can be defined as follows:
+Before modeling, let's consider the typical process of sequencing a virus within a population till we detect it:
 
 - There is the general population, and the virus of interest is circulating in that population with some incidence
-- We sample people from this population to get our pools
-- For each person in the pool, there is some probability that they're infected with our virus
-- We sequence this pool until we hit some number of reads that we determine to be sufficient for detection
+- We sample people from this population to get our pool
+- For each person in the pool, there is some probability that they're infected with our virus, and them being infected with the virus will potentially result in some portion of reads from their blood being from our virus of interest
+- We sequence this pool until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus
 
+Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we'd probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the [doubling rate per day for the HIV-like virus](https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&ver=6), we can also derive a fixed prevalence (for this, I use the code provided in the pooled swab sampling post):
 
-Given this framework, we'll an assumption that is similar to Simon's swab post:
+\begin{align*}
+\text{growth factor} &= 2^{\frac{1}{\text{doubling period days}}} \\
+\text{weekly growth} &= \text{growth factor}^{\text{days in week}} \\
+\text{prevalence} &= \text{weekly incidence} \times \frac{\text{weekly growth}}{\text{weekly growth}-1}
+\end{align*}
 
-- There is some fixed baseline weekly incidence of this virus, we'll assume it to be at 1% (hence our X% cumulative incidence becomes 1% weekly incidence)
-  - I use weekly incidence as it allows us to calculate the cost of sequencing by considering the cost in a week, and multiplying it by 52
-  - Again, we may decide to do something different later, but I plan on sticking with this for the rest of the analysis.
+Second, we will estimate a ratio that will allow us to convert an infected person to the relative abundance HIV-like virus reads that we'd find from sequencing their blood. We will call this the *i2ra* ratio. To estimate this value, we will use existing metagenomic sequencing data from people with HIV.
 
+We'd prefer to find studies where 1) confirmed HIV positive people, 2) individual samples, and 3) they provide the number of HIV reads, along with the total sequencing depth. I prefer the studies where they provide these directly in a table, as it's the fastest to process, and we don't have to justify the use of computational methods (these would be necessary if we tried to derive this using the raw sequencing data). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that, or analyze them separately, similar to how [p2ra does it](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4).
 
-Given this 1% weekly incidence and the doubling rate of an HIV like-virus to be [0.65](https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&ver=6), we can derive prevalence:
+Third, we assume that we'll be running sequencing on pooled samples. This will be cheaper than individual samples, and in some cases, we may not be able to get the samples individually.
 
-```r
-  # Inherent to pathogen
-  doubling_period_days <- 0.65
-  # We set this
-  weekly_incidence <- 0.01
-  get_prevalence <- function() {
-    days_in_week <- 7
-    growth_factor <- 2 ^ (1 / doubling_period_days)
-    weekly_growth <- growth_factor ^ days_in_week
-    prevalence <- weekly_incidence * (weekly_growth) / (weekly_growth - 1)
-    return(prevalence)
-```
+# Methods
 
-To figure out how deep we need to sequence, we will need to figure out the ratio at which an infected person contributes to HIV relative abundance. We will call this our i2ra factor, and we will estimate this using existing whole blood data coming from people with HIV.
+We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample costs, then summing them over all the weeks in a year:
 
-We'd prefer to find studies where 1) confirmed HIV positive people, 2) individual samples, and 3) they provide the number of HIV reads, along with the total sequencing depth. I prefer the studies where they provide these directly in a table, as it's the fastest, and we don't have to justify the use of computational methods (these would be necssary if tried to derive this using the raw sequecning data). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that, or analyze them separately, similar to how [p2ra does it](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4).
+\begin{align*}
+\text{Total cost per week} &= \underbrace{\text{sequencing depth} \times (\text{cost of sequencing} + \text{cost of processing})}_{\text{Sequencing based costs}} + \underbrace{\text{cost of single sample} \times \text{pool size}}_{\text{Per-sample cost}} \\
+\text{Total cost per year} &= \text{Total cost per week} \times 52
+\end{align*}
+
+Of these variables, the main one we have to model is sequencing depth. The rest can be collected from the literature or other sources. I first introduce some notations:
+
+- $ps$: pool size (user-defined)
+- $i$: infected person
+- $i2ra$: infected person to relative abundance ratio
+- $n$: sequencing depth
+- $d$: detection threshold (user-defined)
+- $pr$: prevalence
+- $ra$: relative abundance
+
+Given this notation, we can find the sequencing depth to detect our HIV-like pathogen by running simulations using the following formula:
+
+## Estimating the infected person to relative abundance ratio (*i2ra*)
+
+To estimate the *i2ra*, I take our study, and filter the samples to all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. For the individuals that don't have ART, I find the HIV relative abundance by diving the HIV read count by the total read count (before cleaning of course). We estimate the i2ra factor to be the average relative abundance of all non-ART taking individuals.
+
+$$ i2ra = \frac{1}{n} \sum_{m \in \text{non ART individuals}}^n \frac{m_{\text{HIV read count}}}{m_{\text{Total read count}}} $$
+
+## Estimating sequencing depth 
+
+Estimating sequence depth requires 1) estimating the number of infected people in the pool 2) calculating the relative abundance of HIV in those pools, 3) using the read threshold with the relative abundance to get the sequecnign dpeth.
+
+We now discuss each of these in a little bit more detail, but the formula boils down to:
+
+$$ n = \frac{d}{(\frac{i}{ps}) \times i2ra}$$
+
+### Estimating the number of infected people in the pool (*i*)
+
+To get the estimated number of infected people in a pool we might naively multiply the prevalence by the pool size to keep things simple, however, often the prevalence maybe too small to get any people in the pool as infected (e.g. prevalence is 1% but pool size is 50 so 0 people are infected). Hence, what we can do is use a distribution to model people being infected in our pool. Specifically, we can use a Poisson distribution (similar to Simon's work), which nicely accounts for the case where the prevalence may be lower than the pool size. 
+
+$$ i \sim Poisson(\lambda=pr \times ps) $$
+
+### Estimating the relative abundance of the pool (*ra*)
+
+We calculate the relative abundance of the pool by applying the i2ra factor to the fraction of the pool that is infected:
+
+$$ ra = \frac{i}{ps} \times i2ra $$
+
+### Estimate sequencing depth (*n*)
+
+To figure out sequencing depth, we can figure out total detection divided by ra to get teh sequencing depth.
+
+$$ n = \frac{d}{ ra } $$
+
+## Running simulation
+
+To estimate the sequencing depth, we can use simulations to account of variations/errors in our calculation, with the goal of understanding the distribution of sequencing depth. For simplicity we will use the mean of the sequencing depth as our sequecnign depth.
+
+## Estimating the total cost
+
+To wrap things up, we can use a simple cost model:
+
+Total cost per week = ( mean sequencing depth * (cost of sequencing + cost of processing)) + (cost of single sample * pool_size).
+
+# Results
 
 To make things simple, I only decided to analyze one study below. However, the study that [I chose](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/) matched the requirements I laid out above pretty well:
 
@@ -63,70 +114,6 @@ To make things simple, I only decided to analyze one study below. However, the s
 - Note: I used the standardized viral count for HIV; we probably want to have unstandardized viral count, however for this exploratory work this should be enough
 - I looked at a few other studies, but have not included them below.
 
-# Methods
-
-## Variable definitions
-
-- $ps$: pool size
-- $i$: infected person
-- $i2ra$: infected person to relative abundance
-- $n$: sequencing depth
-- $d$: detection threshold
-- $pr$: prevalence
-
-## Estimating i2ra
-
-To estimate the i2ra, I take our study, and filter the samples to all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. For the individuals that don't have ART, I find the HIV relative abundance by diving the HIV read count by the total read count (before cleaning of course). Using the HIV relative abundance, I take the average over all non-ART individuals. This gives us an estimate of the i2ra factor for an HIV-like pathogen.
-
-$$ i2ra = \sum_{non ART individuals} (HIV reads / total reads) $$
-
-## Estimating sequencing depth
-
-To estimate sequencing depth, we take an approach similar to that of the nasal swab work.
-
-Steps to sequencing depth:
-1. Estimate the number of infected people in the pool
-2. Calculate the relative abundance of HIV in that pool
-3. Use relative abundance along with read threshold to get sequencing depth.
-
-We now discuss each of these in a little bit more detail, but the formula boils down to:
-
-$$ n = \frac{d}{(i/ps) * i2ra}$$
-
-### Estimating the number of infected people in the pool
-
-To get the estimated number of infected people in a pool we might naively multiply the prevalence by the pool size to keep things simple, however, often the prevalence maybe too small to get any people in the pool as infected (e.g. prevalence is 1% but pool size is 50 so 0 people are infected). Hence, what we can do is use a distribution to model people being infected in our pool. Specifically, we can use a Poisson distribution (similar to Simon's work), which nicely accounts for the case where the prevalence may be lower than the pool size. 
-
-$$ n_{infected} \sim Poisson(\lambda=poolsize*prevalence) $$
-
-### Calcualte the relative abundance
-
-To calculate the relative abundance, we can simply take the i2ra factor, and multiply it by the fraction of infected people. THis gives us a point estimate.
-
-$$ ra = (n_{infected}/poolsize) * i2ra $$
-
-### Estimate sequencing depth
-
-To figure out sequencing depth, we can figure out total detection divided by ra to get teh sequencing depth.
-
-$$ sequencingdepth = detectionthreshold / ra $$
-
-## Running simulation
-
-Since we have a non-deterministic portion of our sequencing depth, we can run a simulation to get a distribution of sequencing depth. If we were to switch any of the other estiamtes to be distrbiutions, we would also benefit form this as well. We run simulations so that we can hopefully converge to what the true expected value is rather than just choosing a point estimate.
-
-In this case all that would be changing from estaimte to tesimate is the amount of infected people in the pool.
-
-Going forward then, we can use the mean sequencing depth as the sequencing depth we're interested in.
-
-## Cost estimate
-
-We develop a simple cost model:
-
-Total cost per week = ( mean sequencing depth * (cost of sequencing + cost of processing)) + (cost of single sample * pool_size)
-
-
-# Analysis
 
 
 ```{r}
@@ -138,21 +125,12 @@ library(tidyverse)
 ```
 
 ```{r}
-#| label: load-data
+#| label: setup-functions
 
-# load in data
-data <- read_csv("../data/hiv-data.csv")
-our_data <- data %>% select("HIV", "HIV load (RNA copies/ml)", "Total no. of reads", "No. of unique reads", "ART")
-our_data <- our_data %>% filter(ART == "No") %>% mutate("hiv_ra" = HIV / `Total no. of reads`)
-our_data <- our_data %>% rowid_to_column("sample_id")
-
-# Find the i2ra factor by taking the average of hiv ra over all HIV people.
-i2ra <- our_data %>% summarize(mean=mean(hiv_ra)) %>% pull(mean)
-
-```
-
-```{r}
-#| label: define-functions
+# Define function to calculate read depth, and store some summary statistics
+# 1. Use poisson distribution to estimate the number of infected people
+# 2. Calculate ra based on infected people in pool
+# 3. Calculate total number of reads for detection
 
 find_seq_depth <- function(prevalence, i2ra_factor, pool_size, detection_threshold, simulations) {
   results <- data.frame(
@@ -163,6 +141,7 @@ find_seq_depth <- function(prevalence, i2ra_factor, pool_size, detection_thresho
   for (i in 1:simulations) {
     n_infected <- rpois(1, pool_size * prevalence)
     if (n_infected == 0) {
+      # Can't divide by 0
       expected_ra <- 1e-15
     } else {
       expected_ra <- (n_infected / pool_size) * i2ra_factor
@@ -185,11 +164,34 @@ find_seq_depth <- function(prevalence, i2ra_factor, pool_size, detection_thresho
   return(list(results = results, summary = summary_stats))
 }
 
+# Calculate total cost
+
 find_total_cost <- function(seq_depth, cost_of_seq, cost_of_proc, cost_of_sample, num_samples) {
   return(seq_depth * (cost_of_seq + cost_of_proc) + cost_of_sample * num_samples)
 }
 
 ```
+
+```{r}
+#| label: load-data
+
+# load in data
+data <- read_csv("../data/hiv-data.csv")
+# select columns of interest
+our_data <- data %>% select("HIV", "HIV load (RNA copies/ml)", "Total no. of reads", "No. of unique reads", "ART")
+our_data <- our_data %>% rowid_to_column("sample_id")
+# subset to patience of interest and calculate ra of hiv
+our_data <- our_data %>% filter(ART == "No") %>% mutate("hiv_ra" = HIV / `Total no. of reads`)
+
+# Find the i2ra factor by taking the average of hiv ra over all HIV people.
+i2ra <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
+
+```
+
+Of the 35 subjects, 14 of them did not take ART, and thus were analyzed by me. Of those 14 people, 4 people had no levels of viral nucleic acid present in their blood. We get an i2ra factor of 7e-5.
+
+
+Using 1% weekly incidence with a doubling rate of 0.65, based on HIV, we get a prevalence of ~1%. We set the read threshold of detection to be 100, the pool size to vary from 100
 
 
 ```{r}
@@ -247,7 +249,15 @@ yearly_cost <- weekly_cost * 52
 
 
 
-# Improvements
+# Improvements or different directions
+
+## Model prevalence as a function of time
+
+If we want to model an outbreak, it would be better to assume a non-constant prevalence.
+
+## Use a longer time horizon for incidence
+
+Right now we use weekly incidence as this is what both the nasal swab and wastewater paper do. We may want to change this, although I'm not sure when would be the right case to do this.
 
 ## Estimate prevalence not using point
 
@@ -279,6 +289,10 @@ We will most likely want to use more studies as this is just one study.
 
 To some extent, using the standaardized viral counts is going to hurt us.
 
+
+# TODO
+- Do sweep of weekly incidence and pool size similar to p2ra work
+- analyze the rest of the results
 
 # Appendix
 
