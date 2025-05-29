@@ -120,13 +120,15 @@ window.Quarto = {
   <li><a href="#results" id="toc-results" class="nav-link" data-scroll-target="#results"><span class="header-section-number">4</span> Results</a></li>
   <li><a href="#improvements" id="toc-improvements" class="nav-link" data-scroll-target="#improvements"><span class="header-section-number">5</span> Improvements</a>
   <ul class="collapse">
-  <li><a href="#make-some-plots" id="toc-make-some-plots" class="nav-link" data-scroll-target="#make-some-plots"><span class="header-section-number">5.1</span> Make some plots</a></li>
-  <li><a href="#adding-more-studies" id="toc-adding-more-studies" class="nav-link" data-scroll-target="#adding-more-studies"><span class="header-section-number">5.2</span> Adding more studies</a></li>
-  <li><a href="#plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" id="toc-plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" class="nav-link" data-scroll-target="#plot-a-sweep-of-different-weekly-incidences-and-pool-sizes"><span class="header-section-number">5.3</span> Plot a sweep of different weekly incidences and pool sizes</a></li>
-  <li><a href="#model-prevalence-as-a-function-of-time" id="toc-model-prevalence-as-a-function-of-time" class="nav-link" data-scroll-target="#model-prevalence-as-a-function-of-time"><span class="header-section-number">5.4</span> Model prevalence as a function of time</a></li>
-  <li><a href="#use-a-longer-time-horizon-for-incidence" id="toc-use-a-longer-time-horizon-for-incidence" class="nav-link" data-scroll-target="#use-a-longer-time-horizon-for-incidence"><span class="header-section-number">5.5</span> Use a longer time horizon for incidence</a></li>
-  <li><a href="#estimate-relative-abundance-of-pool-using-a-distribution" id="toc-estimate-relative-abundance-of-pool-using-a-distribution" class="nav-link" data-scroll-target="#estimate-relative-abundance-of-pool-using-a-distribution"><span class="header-section-number">5.6</span> Estimate relative abundance of pool using a distribution</a></li>
-  <li><a href="#double-check-all-numbers" id="toc-double-check-all-numbers" class="nav-link" data-scroll-target="#double-check-all-numbers"><span class="header-section-number">5.7</span> Double check all numbers</a></li>
+  <li><a href="#consider-the-timing-of-infection-in-the-i2ra-estimate" id="toc-consider-the-timing-of-infection-in-the-i2ra-estimate" class="nav-link" data-scroll-target="#consider-the-timing-of-infection-in-the-i2ra-estimate"><span class="header-section-number">5.1</span> Consider the timing of infection in the <em>i2ra</em> estimate</a></li>
+  <li><a href="#simulating-sampling-multiple-times-a-week" id="toc-simulating-sampling-multiple-times-a-week" class="nav-link" data-scroll-target="#simulating-sampling-multiple-times-a-week"><span class="header-section-number">5.2</span> Simulating sampling multiple times a week</a></li>
+  <li><a href="#make-some-plots" id="toc-make-some-plots" class="nav-link" data-scroll-target="#make-some-plots"><span class="header-section-number">5.3</span> Make some plots</a></li>
+  <li><a href="#adding-more-studies" id="toc-adding-more-studies" class="nav-link" data-scroll-target="#adding-more-studies"><span class="header-section-number">5.4</span> Adding more studies</a></li>
+  <li><a href="#plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" id="toc-plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" class="nav-link" data-scroll-target="#plot-a-sweep-of-different-weekly-incidences-and-pool-sizes"><span class="header-section-number">5.5</span> Plot a sweep of different weekly incidences and pool sizes</a></li>
+  <li><a href="#model-prevalence-as-a-function-of-time" id="toc-model-prevalence-as-a-function-of-time" class="nav-link" data-scroll-target="#model-prevalence-as-a-function-of-time"><span class="header-section-number">5.6</span> Model prevalence as a function of time</a></li>
+  <li><a href="#use-a-longer-time-horizon-for-incidence" id="toc-use-a-longer-time-horizon-for-incidence" class="nav-link" data-scroll-target="#use-a-longer-time-horizon-for-incidence"><span class="header-section-number">5.7</span> Use a longer time horizon for incidence</a></li>
+  <li><a href="#estimate-relative-abundance-of-pool-using-a-distribution" id="toc-estimate-relative-abundance-of-pool-using-a-distribution" class="nav-link" data-scroll-target="#estimate-relative-abundance-of-pool-using-a-distribution"><span class="header-section-number">5.8</span> Estimate relative abundance of pool using a distribution</a></li>
+  <li><a href="#double-check-all-numbers" id="toc-double-check-all-numbers" class="nav-link" data-scroll-target="#double-check-all-numbers"><span class="header-section-number">5.9</span> Double check all numbers</a></li>
   </ul></li>
   <li><a href="#appendix" id="toc-appendix" class="nav-link" data-scroll-target="#appendix"><span class="header-section-number">6</span> Appendix</a>
   <ul class="collapse">
@@ -189,25 +191,25 @@ window.Quarto = {
 <li>There is the general population, and the virus of interest is circulating in that population with some incidence</li>
 <li>We sample people from this population to get our pool</li>
 <li>For each person in the pool, there is some probability that they’re infected with our virus, and them being infected with the virus will potentially result in some portion of reads from their blood being from our virus of interest</li>
-<li>We sequence this pool until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus</li>
+<li>We sequence this pool (or multiple pools) until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus</li>
 </ul>
-<p>Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we’d probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the <a href="https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&amp;ver=6">doubling rate per day for the HIV-like virus</a>, we can also derive a fixed prevalence (for this, I use the code provided in the pooled swab sampling post):</p>
+<p>Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we’d probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the <a href="https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&amp;ver=6">doubling rate per day for the HIV-like virus</a> (note: this source is incorrect, i’ll need to do more research to find a source that tells us the doubling rateof HIV, for now we’ll assume that this is correct), we can also derive a fixed prevalence (for this, I use the <a href="https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/">code</a> provided in the pooled swab sampling post; to find this code, click on the first code block on the blog and find the <code>get_prevalence</code> function):</p>
 <p><span class="math display">\[\begin{align*}
 \text{growth factor} &amp;= 2^{\frac{1}{\text{doubling period days}}} \\
 \text{weekly growth} &amp;= \text{growth factor}^{\text{days in week}} \\
 \text{prevalence} &amp;= \text{weekly incidence} \times \frac{\text{weekly growth}}{\text{weekly growth}-1}
 \end{align*}\]</span></p>
-<p>Second, we will estimate a ratio that will allow us to convert an infected person to the relative abundance HIV-like virus reads that we’d find from sequencing their blood. We will call this the <em>i2ra</em> ratio. To estimate this value, we will use existing metagenomic sequencing data from people with HIV.</p>
-<p>We’d prefer to find studies where 1) confirmed HIV positive people, 2) individual samples, and 3) they provide the number of HIV reads, along with the total sequencing depth. I prefer the studies where they provide these directly in a table, as it’s the fastest to process, and we don’t have to justify the use of computational methods (these would be necessary if we tried to derive this using the raw sequencing data). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that, or analyze them separately, similar to how <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra does it</a>.</p>
+<p>Second, we will estimate a ratio that will allow us to convert an HIV-infected person to the relative abundance HIV-like virus reads that we’d find from sequencing their blood. We will call this the <em>i2ra</em> ratio. To estimate this value, we will use existing metagenomic sequencing data from people with HIV.</p>
+<p>We’d prefer to find studies where 1) confirmed HIV positive people, 2) individual samples, and 3) they provide the number of HIV reads, along with the total sequencing depth. I prefer the studies where they provide these directly in a table, as it’s the fastest to process, and we don’t have to justify the use of computational methods (these would be necessary if we tried to derive this using the raw sequencing data). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that (it would be good to factor in large error bars), or analyze them separately, similar to how <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra does it</a>.</p>
 <p>Third, we assume that we’ll be running sequencing on pooled samples. This will be cheaper than individual samples, and in some cases, we may not be able to get the samples individually.</p>
 </section>
 <section id="methods" class="level1" data-number="3">
 <h1 data-number="3"><span class="header-section-number">3</span> Methods</h1>
-<p>We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample costs, then summing them over all the weeks in a year:</p>
+<p>We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample collection cost, then summing them over all the weeks in a year:</p>
 <p><span class="math display">\[\begin{align*}
 \text{Total cost per week} &amp;= \\
 &amp; \underbrace{\text{sequencing depth} \times (\text{cost of sequencing} + \text{cost of processing})}_{\text{Sequencing based costs}} + \\
-&amp;\underbrace{\text{cost of single sample} \times \text{number of samples}}_{\text{Per-sample cost}} \\
+&amp;\underbrace{\text{cost of single sample} \times \text{number of samples}}_{\text{Per-sample collection cost}} \\
 \text{Total cost per year} &amp;= \text{Total cost per week} \times 52
 \end{align*}\]</span></p>
 <p>where:</p>
@@ -230,7 +232,7 @@ window.Quarto = {
 </ul>
 <p>Given this notation, we can find the sequencing depth to detect our HIV-like pathogen using the following equation:</p>
 <p><span class="math display">\[ n = \frac{d}{(\frac{i}{ps}) \times i2ra}\]</span></p>
-<p>Since there are some non-deterministic factors that will affect the sequencing depth, we’ll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the “Total cost per week” equation above.</p>
+<p>Since there are some non-deterministic factors that will affect the sequencing depth, we’ll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the “Total cost per week” equation above (<em>note: one thing to add is confidence intervals to this estimate</em>).</p>
 <p>Below I will discuss how to calculate the <em>i2ra</em> ratio using pre-existing untargeted metagenomic sequencing data from people with HIV, then show how to calculate the sequencing depth using the <em>i2ra</em> ratio.</p>
 <section id="estimating-the-infected-person-to-relative-abundance-ratio-i2ra" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="estimating-the-infected-person-to-relative-abundance-ratio-i2ra"><span class="header-section-number">3.1</span> Estimating the infected person to relative abundance ratio (<em>i2ra</em>)</h2>
@@ -260,7 +262,7 @@ window.Quarto = {
 </section>
 <section id="results" class="level1" data-number="4">
 <h1 data-number="4"><span class="header-section-number">4</span> Results</h1>
-<p>To test the validity of the model, and get some initial results, I decided to analyze <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/">one study</a>. This study looked at how AIDS alters the plasma virome, and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/">change the rate of HIV nucleic acid found in blood</a>, which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.</p>
+<p>To test the validity of the model, and get some initial results, I decided to analyze <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/">one study</a>. This study looked at how AIDS alters the plasma virome (<em>note: for the final dataset(s) we’re going to focus on people earlier on in HIV infection status; see the section labeled “Consider the timing of infection in the <em>i2ra</em> estimate” under the “Improvements” header to understand why</em>), and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/">change the rate of HIV nucleic acid found in blood</a>, which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
@@ -412,36 +414,45 @@ num (3): Total no. of reads, No. of unique reads, HBV
 </div>
 </div>
 <p>To calculate the total cost, we use the numbers from the <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra paper</a> for the sequencing cost and processing costs, which comes out to be about $2500 each for 1 billion read pairs. For the blood sample costs, I use the higher end of <a href="https://docs.google.com/document/d/1rF5fCTDDqa0lZ8Fms9forA-pHMsB2fCcr3dn9ynrW1U/edit?tab=t.0">our estimate</a>, which puts us at about $100 per sample. Plugging this into our equation with the sequencing depth, we get a cost of about 55 thousand dollars per year, nice.</p>
-<p>Hence, given a read threshold of 100, a pool size of 100, and a weekly incidence of 1%, it would cost about 55k per year to detect an HIV-like pathogen.</p>
+<p>Hence, given a read threshold of 100, a pool size of 100, and a weekly incidence of 1%, it would cost about 55k per year to detect an HIV-like pathogen. (<em>note: we’ll use confidence intervals for the final calculation so that this is a range</em>; silly question for Dan or Simon: how would I convert this weekly incidence number to the cumulative incidence?)</p>
 </section>
 <section id="improvements" class="level1" data-number="5">
 <h1 data-number="5"><span class="header-section-number">5</span> Improvements</h1>
-<section id="make-some-plots" class="level2" data-number="5.1">
-<h2 data-number="5.1" class="anchored" data-anchor-id="make-some-plots"><span class="header-section-number">5.1</span> Make some plots</h2>
+<section id="consider-the-timing-of-infection-in-the-i2ra-estimate" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="consider-the-timing-of-infection-in-the-i2ra-estimate"><span class="header-section-number">5.1</span> Consider the timing of infection in the <em>i2ra</em> estimate</h2>
+<p>From Lenni:</p>
+<p>I think this mostly makes sense but one nuance to consider here is timing of infection. If we want to detect an HIV-like pathogen early, most people will be donating early in the course of infection. HIV has very different shedding dynamics depending on time. Averaging over these states seems mostly reasonable but ideally we’d find people early in the course of infection, asymptomatic, and not taking anti-virals</p>
+</section>
+<section id="simulating-sampling-multiple-times-a-week" class="level2" data-number="5.2">
+<h2 data-number="5.2" class="anchored" data-anchor-id="simulating-sampling-multiple-times-a-week"><span class="header-section-number">5.2</span> Simulating sampling multiple times a week</h2>
+<p>Right now we simulate sampling once a week. Lenni suggested that we may want to sample more than this (e.g.&nbsp;2x-3x per week), it would be to figure out what would need to change to allow for this.</p>
+</section>
+<section id="make-some-plots" class="level2" data-number="5.3">
+<h2 data-number="5.3" class="anchored" data-anchor-id="make-some-plots"><span class="header-section-number">5.3</span> Make some plots</h2>
 <p>This would be nice to have.</p>
 </section>
-<section id="adding-more-studies" class="level2" data-number="5.2">
-<h2 data-number="5.2" class="anchored" data-anchor-id="adding-more-studies"><span class="header-section-number">5.2</span> Adding more studies</h2>
+<section id="adding-more-studies" class="level2" data-number="5.4">
+<h2 data-number="5.4" class="anchored" data-anchor-id="adding-more-studies"><span class="header-section-number">5.4</span> Adding more studies</h2>
 <p>We will most likely want to get more data for estimating the i2ra factor.</p>
 </section>
-<section id="plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" class="level2" data-number="5.3">
-<h2 data-number="5.3" class="anchored" data-anchor-id="plot-a-sweep-of-different-weekly-incidences-and-pool-sizes"><span class="header-section-number">5.3</span> Plot a sweep of different weekly incidences and pool sizes</h2>
+<section id="plot-a-sweep-of-different-weekly-incidences-and-pool-sizes" class="level2" data-number="5.5">
+<h2 data-number="5.5" class="anchored" data-anchor-id="plot-a-sweep-of-different-weekly-incidences-and-pool-sizes"><span class="header-section-number">5.5</span> Plot a sweep of different weekly incidences and pool sizes</h2>
 <p>It would be nice to see how pool size and weekly incidence affect the cost. We could make a plot similar to what is done in the p2ra paper.</p>
 </section>
-<section id="model-prevalence-as-a-function-of-time" class="level2" data-number="5.4">
-<h2 data-number="5.4" class="anchored" data-anchor-id="model-prevalence-as-a-function-of-time"><span class="header-section-number">5.4</span> Model prevalence as a function of time</h2>
+<section id="model-prevalence-as-a-function-of-time" class="level2" data-number="5.6">
+<h2 data-number="5.6" class="anchored" data-anchor-id="model-prevalence-as-a-function-of-time"><span class="header-section-number">5.6</span> Model prevalence as a function of time</h2>
 <p>If we wanted to model an outbreak, it would be better to assume a non-constant prevalence.</p>
 </section>
-<section id="use-a-longer-time-horizon-for-incidence" class="level2" data-number="5.5">
-<h2 data-number="5.5" class="anchored" data-anchor-id="use-a-longer-time-horizon-for-incidence"><span class="header-section-number">5.5</span> Use a longer time horizon for incidence</h2>
+<section id="use-a-longer-time-horizon-for-incidence" class="level2" data-number="5.7">
+<h2 data-number="5.7" class="anchored" data-anchor-id="use-a-longer-time-horizon-for-incidence"><span class="header-section-number">5.7</span> Use a longer time horizon for incidence</h2>
 <p>Right now we use weekly incidence as this is what both the nasal swab and wastewater paper do. We will want to decide whether this is good for us.</p>
 </section>
-<section id="estimate-relative-abundance-of-pool-using-a-distribution" class="level2" data-number="5.6">
-<h2 data-number="5.6" class="anchored" data-anchor-id="estimate-relative-abundance-of-pool-using-a-distribution"><span class="header-section-number">5.6</span> Estimate relative abundance of pool using a distribution</h2>
+<section id="estimate-relative-abundance-of-pool-using-a-distribution" class="level2" data-number="5.8">
+<h2 data-number="5.8" class="anchored" data-anchor-id="estimate-relative-abundance-of-pool-using-a-distribution"><span class="header-section-number">5.8</span> Estimate relative abundance of pool using a distribution</h2>
 <p>You may have noticed that I look at the median sequencing depth instead of the mean sequencing depth from the simulation. This is because we often have 0 infected people in the pool, however this leads to issues as, we cannot divide by 0. We may decide to model the relative abundance of the pool as a distribution similar to Simon’s nasal swab work.</p>
 </section>
-<section id="double-check-all-numbers" class="level2" data-number="5.7">
-<h2 data-number="5.7" class="anchored" data-anchor-id="double-check-all-numbers"><span class="header-section-number">5.7</span> Double check all numbers</h2>
+<section id="double-check-all-numbers" class="level2" data-number="5.9">
+<h2 data-number="5.9" class="anchored" data-anchor-id="double-check-all-numbers"><span class="header-section-number">5.9</span> Double check all numbers</h2>
 <p>Double check all the numbers, and make sure they make sense.</p>
 </section>
 </section>
