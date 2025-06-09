@@ -20,7 +20,7 @@ format:
 
 *I'd like to thank Dan and Simon for our conversations about cost modeling. This work heavily draws from [Simon's blog post on pooled nasal swabs](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/).*
 
-We'd like to make a cost-estimate to run a blood biosurveillance system in the US for a year at a sequencing depth capable of detecting a novel-HIV-like pathogen at X% cumulative incidence.
+We'd like to make a cost-estimate to run a blood biosurveillance system in the US for a year at a sequencing depth capable of detecting a novel-HIV-like pathogen at some X% weekly incidence.
 
 For this model, my goal was to make the most simple possible solution.
 
@@ -33,7 +33,7 @@ Before modeling, let's consider the typical process of sequencing a virus within
 - For each person in the pool, there is some probability that they're infected with our virus, and them being infected with the virus will potentially result in some portion of reads from their blood being from our virus of interest
 - We sequence this pool (or multiple pools) until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus
 
-Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we'd probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the [doubling rate per day for the HIV-like virus](https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&ver=6) (note: this source is incorrect, i'll need to do more research to find a source that tells us the doubling rateof HIV, for now we'll assume that this is correct), we can also derive a fixed prevalence (for this, I use the [code](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/) provided in the pooled swab sampling post; to find this code, click on the first code block on the blog and find the `get_prevalence` function):
+Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we'd probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the doubling rate per day for the HIV-like virus (see Appendix: Doubling rate per day for HIV-like pathogen), we can also derive a fixed prevalence (for this, I use the [code](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/) provided in the pooled swab sampling post; to find this code, click on the first code block on the blog and find the `get_prevalence` function):
 
 \begin{align*}
 \text{growth factor} &= 2^{\frac{1}{\text{doubling period days}}} \\
@@ -80,7 +80,7 @@ Given this notation, we can find the sequencing depth to detect our HIV-like pat
 
 $$ n = \frac{d}{(\frac{i}{ps}) \times i2ra}$$
 
-Since there are some non-deterministic factors that will affect the sequencing depth, we'll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the "Total cost per week" equation above (*note: one thing to add is confidence intervals to this estimate*).
+Since there are some non-deterministic factors that will affect the sequencing depth, we'll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the "Total cost per week" equation above (*NB: one thing to add is confidence intervals to this estimate*).
 
 Below I will discuss how to calculate the *i2ra* ratio using pre-existing untargeted metagenomic sequencing data from people with HIV, then show how to calculate the sequencing depth using the *i2ra* ratio.
 
@@ -106,7 +106,7 @@ We calculate the relative abundance of the pool by applying the *i2ra* factor to
 
 $$ ra = \frac{i}{ps} \times i2ra $$
 
-*Note: We may want to take a more rigorous approach here by using a distribution to model the relative abundance of the pathogen. More details on this can be found in the section labeled improvements.*
+*NB: We may want to take a more rigorous approach here by using a distribution to model the relative abundance of the pathogen. More details on this can be found in the section labeled improvements.*
 
 ### Estimate the required sequencing depth using the read threshold (*d*)
 
@@ -116,7 +116,7 @@ $$ n = \frac{d}{ ra } $$
 
 # Results
 
-To test the validity of the model, and get some initial results, I decided to analyze [one study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/). This study looked at how AIDS alters the plasma virome (*note: for the final dataset(s) we're going to focus on people earlier on in HIV infection status; see the section labeled "Consider the timing of infection in the *i2ra* estimate" under the "Improvements" header to understand why*), and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.
+To test the validity of the model, and get some initial results, I decided to analyze [one study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/). This study looked at how AIDS alters the plasma virome (*NB: for the final dataset(s) we're going to focus on people earlier on in HIV infection status; see the section labeled "Consider the timing of infection in the *i2ra* estimate" under the "Improvements" header to understand why*), and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.
 
 ```{r}
 #| label: load-packages
@@ -153,15 +153,20 @@ find_seq_depth <- function(prevalence, i2ra_factor, pool_size, detection_thresho
     results$expected_ra[i] <- expected_ra
     results$required_depth[i] <- required_depth
   }
+  finite_depths <- results$required_depth[is.finite(results$required_depth)]
   summary_stats <- list(
     mean_infected = mean(results$n_infected),
     median_infected = median(results$n_infected),
     zero_pools_pct = 100 * mean(results$n_infected == 0),
     mean_ra = mean(results$expected_ra[results$n_infected > 0]),
     median_ra = median(results$expected_ra[results$n_infected > 0]),
-    mean_depth = mean(results$required_depth[is.finite(results$required_depth)]),
-    median_depth = median(results$required_depth[is.finite(results$required_depth)]),
-    depth_95pct = quantile(results$required_depth[is.finite(results$required_depth)], 0.95)
+    mean_depth = mean(finite_depths),
+    median_depth = median(finite_depths),
+    depth_95pct = quantile(finite_depths, 0.95),
+    depth_ci_lower = quantile(finite_depths, 0.025),
+    depth_ci_upper = quantile(finite_depths, 0.975),
+    depth_iqr_lower = quantile(finite_depths, 0.25),
+    depth_iqr_upper = quantile(finite_depths, 0.75)
   )
   return(list(results = results, summary = summary_stats))
 }
@@ -194,8 +199,7 @@ i2ra <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
 
 Of the 35 subjects in this study, all of whom have HIV, I only analyzed the 14 that were not taking ART. Of those 14 people, 4 people had undetectable levels viral nucleic acid present in their blood. We get an i2ra factor of 7e-5.
 
-
-Using a 1% weekly incidence with a doubling rate of [0.65](https://bionumbers.hms.harvard.edu/bionumber.aspx?id=105728&ver=6), we get a prevalence of ~1%. We can then set the read threshold of detection to be 100, try a pool size of 100, and run 1000 runs of the simulation  This gives us a required median sequencing depth of about 1.34 × 10^8 or ~13 million reads per week.
+Using a 1% weekly incidence with a doubling rate of 362 days (see Appendix: Doubling rate per day for HIV-like pathogen), we get a prevalence of ~75% (nb: this is quite high, for covid-19 it was 1.2% at a 3 day doubling rate; this is a bit unintuitive for me). We can then set the read threshold of detection to be 100, try a pool size of 100, and run 1000 runs of the simulation. This gives us a required median sequencing depth of about 1.79 × 10^6 or ~1.79 million reads per week.
 
 ```{r}
 #| label: find-seq-depth
@@ -205,7 +209,7 @@ if (static_prevalence) {
   prevalence <- 0.01
 } else {
   # Inherent to pathogen
-  doubling_period_days <- 0.65
+  doubling_period_days <- 362
   # We set this
   weekly_incidence <- 0.01
   get_prevalence <- function() {
@@ -247,12 +251,11 @@ weekly_cost <- find_total_cost(
 
 yearly_cost <- weekly_cost * 52
 yearly_cost
-
 ```
 
-To calculate the total cost, we use the numbers from the [p2ra paper](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4) for the sequencing cost and processing costs, which comes out to be about $2500 each for 1 billion read pairs. For the blood sample costs, I use the higher end of [our estimate](https://docs.google.com/document/d/1rF5fCTDDqa0lZ8Fms9forA-pHMsB2fCcr3dn9ynrW1U/edit?tab=t.0), which puts us at about $100 per sample. Plugging this into our equation with the sequencing depth, we get a cost of about 55 thousand dollars per year, nice.
+To calculate the total cost, we use the numbers from the [p2ra paper](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4) for the sequencing cost and processing costs, which comes out to be about $2500 each for 1 billion read pairs. For the blood sample costs, I use the higher end of [our estimate](https://docs.google.com/document/d/1rF5fCTDDqa0lZ8Fms9forA-pHMsB2fCcr3dn9ynrW1U/edit?tab=t.0), which puts us at about $100 per sample. Plugging this into our equation with the sequencing depth, we get a cost of about $520K per year.
 
-Hence, given a read threshold of 100, a pool size of 100, and a weekly incidence of 1%, it would cost about 55k per year to detect an HIV-like pathogen. (*note: we'll use confidence intervals for the final calculation so that this is a range*; silly question for Dan or Simon: how would I convert this weekly incidence number to the cumulative incidence?)
+Hence, given a read threshold of 100, a pool size of 100, and a weekly incidence of 1%, it would cost about 520k per year to detect an HIV-like pathogen.
 
 # Improvements
 
@@ -261,8 +264,6 @@ Hence, given a read threshold of 100, a pool size of 100, and a weekly incidence
 From Lenni:
 
 I think this mostly makes sense but one nuance to consider here is timing of infection. If we want to detect an HIV-like pathogen early, most people will be donating early in the course of infection. HIV has very different shedding dynamics depending on time. Averaging over these states seems mostly reasonable but ideally we'd find people early in the course of infection, asymptomatic, and not taking anti-virals
-
-
 
 ## Simulating sampling multiple times a week
 
@@ -300,7 +301,7 @@ Double check all the numbers, and make sure they make sense.
 
 ## Sanity checking modeling
 
-Just for sanity check, we can set the seq_depth to be 8e5, similar to norovirus example in P2ra, paper and we find that we get similar ball park.
+Just for a sanity check, we can set the seq_depth to be 8e5. This is similar to norovirus example in P2RA paper.
 
 Rothman relative abundance for norovirus GII seems to be about 1e-4.
 
@@ -323,6 +324,38 @@ weekly_cost <- find_total_cost(
 )
 
 yearly_cost <- weekly_cost * 52
+yearly_cost
 ```
 
 This gives us a similar cost, of about 52k per year, so we know that our cost modeling is not too far off.
+
+## Doubling rate per day for HIV-like pathogen
+
+For the purpose of epidemiological modeling, a crucial parameter is the **doubling time**—the time it takes for the number of infected individuals to double. To establish a scientifically-grounded value for a new, HIV-like pathogen, we must look to the early phase of the HIV epidemic in the 1970s and 1980s, before widespread awareness and effective treatments altered its natural course.
+
+The standard epidemiological formula for this calculation is:
+
+$$T_d = \frac{\ln(2)}{r}$$
+
+Where:
+
+* `T_d` is the **doubling time** for the year.
+* `r` is the **intrinsic growth rate** of the epidemic per year.
+* `ln(2)` is the natural logarithm of 2, a constant approximately equal to 0.693.
+
+Luckily, a 2016 study from *Nature*, titled ["1970s and 'Patient 0' HIV-1 genomes illuminate early HIV/AIDS history in North America"](https://www.nature.com/articles/nature19827), found a range for this. The researchers empirically calculated the doubling time (T_d) to be 0.86 -> 1.12 years.
+
+We can take the arithmetic mean of this to get:
+
+$$T_d = 0.99 \text{ years}$$
+
+Converting this to days gives us our final, justifiable figure:
+
+$$0.99 \text{ years} \times 365 \frac{\text{days}}{\text{year}} \approx \textbf{362 days}$$
+
+Based on the most direct empirical evidence from the early HIV epidemic, the justifiable doubling time for a new, unchecked HIV-like pathogen is approximately **362 days**.
+
+For context, this is fundamentally different from a rapidly spreading respiratory virus. Wild-type SARS-CoV-2, for example, had a doubling time of approximately **[3 days](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/)** at the beginning of the pandemic. This stark contrast underscores the slow, persistent transmission dynamic of an HIV-like pathogen compared to the explosive growth of an airborne disease.
+
+
+NB: It looks like we're just undoing this calculation to get the growth rate to calculate prevalence, I should double check this.
