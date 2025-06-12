@@ -133,7 +133,7 @@ window.Quarto = {
   <li><a href="#appendix" id="toc-appendix" class="nav-link" data-scroll-target="#appendix"><span class="header-section-number">6</span> Appendix</a>
   <ul class="collapse">
   <li><a href="#sanity-checking-modeling" id="toc-sanity-checking-modeling" class="nav-link" data-scroll-target="#sanity-checking-modeling"><span class="header-section-number">6.1</span> Sanity checking modeling</a></li>
-  <li><a href="#doubling-rate-per-day-for-hiv-like-pathogen" id="toc-doubling-rate-per-day-for-hiv-like-pathogen" class="nav-link" data-scroll-target="#doubling-rate-per-day-for-hiv-like-pathogen"><span class="header-section-number">6.2</span> Doubling rate per day for HIV-like pathogen</a></li>
+  <li><a href="#doubling-rate-hiv" id="toc-doubling-rate-hiv" class="nav-link" data-scroll-target="#doubling-rate-hiv"><span class="header-section-number">6.2</span> Doubling rate per day for HIV-like pathogen</a></li>
   </ul></li>
   </ul>
 <div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="prelim-analysis.pdf"><i class="bi bi-file-pdf"></i>PDF</a></li></ul></div></nav>
@@ -182,8 +182,7 @@ window.Quarto = {
 <section id="motivation" class="level1" data-number="1">
 <h1 data-number="1"><span class="header-section-number">1</span> Motivation</h1>
 <p><em>I’d like to thank Dan and Simon for our conversations about cost modeling. This work heavily draws from <a href="https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/">Simon’s blog post on pooled nasal swabs</a>.</em></p>
-<p>We’d like to make a cost-estimate to run a blood biosurveillance system in the US for a year at a sequencing depth capable of detecting a novel-HIV-like pathogen at some X% weekly incidence.</p>
-<p>For this model, my goal was to make the most simple possible solution.</p>
+<p>We’d like to estimate the cost of running a blood biosurveillance system in the US for a year that is capable of detecting a HIV like-pathogen at X% weekly incidence. Specifically, we want to know the sensitivity of blood to detect such a pathogen. For this model, my goal was to make the most simple solution, as this will be used in a perspective piece and will only take up one section of the main text (derivations would go in the appendix).</p>
 </section>
 <section id="background" class="level1" data-number="2">
 <h1 data-number="2"><span class="header-section-number">2</span> Background</h1>
@@ -194,15 +193,16 @@ window.Quarto = {
 <li>For each person in the pool, there is some probability that they’re infected with our virus, and them being infected with the virus will potentially result in some portion of reads from their blood being from our virus of interest</li>
 <li>We sequence this pool (or multiple pools) until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus</li>
 </ul>
-<p>Given this framework, we can begin to make some modeling decisions and assumptions (we may later decide to relax some of these). First, we assume some fixed weekly incidence of our HIV-like virus. Using a weekly incidence allows us to estimate the cost of sequencing required in a week, which then allows us to get the annual number by multiplying the total cost per week by 52. A week is also a handy number as we’d probably want to be sampling around once a week. Using this fixed weekly incidence, combined with the doubling rate per day for the HIV-like virus (see Appendix: Doubling rate per day for HIV-like pathogen), we can also derive a fixed prevalence (for this, I use the <a href="https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/">code</a> provided in the pooled swab sampling post; to find this code, click on the first code block on the blog and find the <code>get_prevalence</code> function):</p>
+<p>Given this information, we make modeling decisions:</p>
+<p><strong>First</strong>, we assume that an HIV like-pathogen is at X% weekly incidence, growing exponentially with a doubling time of <a href="@doubling-rate-hiv">355 days</a>. We choose a weekly incidence as this is what has been done for the wastewater and nasal swab work (NB: They did this for viruses with acute infections, we may want to change this for our use-case). This pathogen is HIV like in that it has similar characteristics to HIV in-terms of transmission and shedding. Using the <a href="https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/">get_prevalence() function from the nasal swab post</a>, which assumes exponential growth in the number of cases, we can derive the prevalence of this HIV like-pathogen:</p>
 <p><span class="math display">\[\begin{align*}
 \text{growth factor} &amp;= 2^{\frac{1}{\text{doubling period days}}} \\
 \text{weekly growth} &amp;= \text{growth factor}^{\text{days in week}} \\
 \text{prevalence} &amp;= \text{weekly incidence} \times \frac{\text{weekly growth}}{\text{weekly growth}-1}
 \end{align*}\]</span></p>
-<p>Second, we will estimate a ratio that will allow us to convert an HIV-infected person to the relative abundance HIV-like virus reads that we’d find from sequencing their blood. We will call this the <em>i2ra</em> ratio. To estimate this value, we will use existing metagenomic sequencing data from people with HIV.</p>
-<p>We’d prefer to find studies where 1) confirmed HIV positive people, 2) individual samples, and 3) they provide the number of HIV reads, along with the total sequencing depth. I prefer the studies where they provide these directly in a table, as it’s the fastest to process, and we don’t have to justify the use of computational methods (these would be necessary if we tried to derive this using the raw sequencing data). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that (it would be good to factor in large error bars), or analyze them separately, similar to how <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra does it</a>.</p>
-<p>Third, we assume that we’ll be running sequencing on pooled samples. This will be cheaper than individual samples, and in some cases, we may not be able to get the samples individually.</p>
+<p><strong>Second</strong>, we estimate the expected relative abundance of the HIV like-pathogen for an infected person by using existing metagenomic sequencing data from people with HIV (NB: this should become “people early in their infection with HIV” once we change the data). We call this the <em>i2ra</em> ratio.</p>
+<p>We look for studies where 1) people were confirmed to be HIV positive, 2) these individual’s samples were sequenced separately, 3) they provide the number of HIV reads, along with the total sequencing depth, and 4) optionally, they are early in their infection of HIV. We prefer the studies where they provide this information in a table, as it’s the fastest to process, and doesn’t require us running their data through our pipeline (NB: we will need to highlight the differences between the studies methods if we decide to go with multiple). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that (it would be good to factor in large error bars), or analyze them separately, similar to how <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra does it</a>.</p>
+<p><strong>Third</strong>, we assume that we’ll be running sequencing on pooled samples. This will be cheaper than individual samples, and in some cases in the real world, we may not be able to get the samples individually.</p>
 </section>
 <section id="methods" class="level1" data-number="3">
 <h1 data-number="3"><span class="header-section-number">3</span> Methods</h1>
@@ -219,9 +219,9 @@ window.Quarto = {
 <li>cost of sequencing: the cost of sequencing a pool of samples using an arbitrary sequencing platform</li>
 <li>cost of processing: the cost of sample preparation and library preparation</li>
 <li>cost of single sample: the cost of purchasing and shipping a single sample</li>
-<li>number of samples: the number of samples we get; this will be our pool size</li>
+<li>number of samples: the number of samples we get; this will be our pool size (NB: this is an error that I need to fix; right now I assume number of samples is pool size)</li>
 </ul>
-<p>Of these variables, the main one we have to model is sequencing depth. The rest can be collected from the literature or other sources. I first introduce some notations:</p>
+<p>The pool size will play a major role in our ability to detect this HIV like-pathogen. Of these other variables, the main one that we will need to derive is sequencing depth. The rest can be collected from the literature or other sources. I first introduce some notations:</p>
 <ul>
 <li><span class="math inline">\(ps\)</span>: pool size (user-defined)</li>
 <li><span class="math inline">\(i\)</span>: number of infected people</li>
@@ -231,20 +231,20 @@ window.Quarto = {
 <li><span class="math inline">\(pr\)</span>: prevalence</li>
 <li><span class="math inline">\(ra\)</span>: relative abundance</li>
 </ul>
-<p>Given this notation, we can find the sequencing depth to detect our HIV-like pathogen using the following equation:</p>
+<p>Given this notation along with a user-defined pool size (number of individuals in a sample) and detection threshold (number of reads necessary to say the HIV like-pathogen is detected), we can find the sequencing depth to detect our HIV-like pathogen using the following equation:</p>
 <p><span class="math display">\[ n = \frac{d}{(\frac{i}{ps}) \times i2ra}\]</span></p>
 <p>Since there are some non-deterministic factors that will affect the sequencing depth, we’ll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the “Total cost per week” equation above (<em>NB: one thing to add is confidence intervals to this estimate</em>).</p>
-<p>Below I will discuss how to calculate the <em>i2ra</em> ratio using pre-existing untargeted metagenomic sequencing data from people with HIV, then show how to calculate the sequencing depth using the <em>i2ra</em> ratio.</p>
+<p>Below I discuss how to calculate the <em>i2ra</em> ratio using pre-existing untargeted metagenomic sequencing data from people with HIV, then show how to calculate the sequencing depth using the <em>i2ra</em> ratio.</p>
 <section id="estimating-the-infected-person-to-relative-abundance-ratio-i2ra" class="level2" data-number="3.1">
 <h2 data-number="3.1" class="anchored" data-anchor-id="estimating-the-infected-person-to-relative-abundance-ratio-i2ra"><span class="header-section-number">3.1</span> Estimating the infected person to relative abundance ratio (<em>i2ra</em>)</h2>
-<p>To estimate the <em>i2ra</em> rato for our HIV-like pathogen, we can take an existing untargeted metagenomic sequencing study that was done on people with confirmed HIV and find the HIV relative abundance by diving the HIV read count by the total read count for those with HIV(before cleaning of course). We can then find the average HIV relative abundance over those individuals with HIV to get our <em>i2ra</em> ratio:</p>
+<p>To estimate the <em>i2ra</em> rato for our HIV-like pathogen, we can take an existing untargeted metagenomic sequencing study that was done on people with confirmed HIV and find the HIV relative abundance by diving the HIV read count by the total read count for those with HIV(before cleaning of course). We can then plot the distribution of HIV relative abundance individuals and find the average HIV relative abundance over those individuals with HIV to get our <em>i2ra</em> ratio:</p>
 <p><span class="math display">\[ i2ra = \frac{1}{M} \sum_{m \in \text{HIV individuals}}^M \frac{m_{\text{HIV read count}}}{m_{\text{Total read count}}} \]</span></p>
 </section>
 <section id="estimating-sequencing-depth-n" class="level2" data-number="3.2">
 <h2 data-number="3.2" class="anchored" data-anchor-id="estimating-sequencing-depth-n"><span class="header-section-number">3.2</span> Estimating sequencing depth (<em>n</em>)</h2>
 <p>Estimating sequence depth requires 1) estimating the number of infected people in the pool, 2) calculating the relative abundance of HIV in those pools, and 3) using the read threshold with the relative abundance to get the sequencing depth.</p>
-<section id="estimating-the-number-of-infected-people-in-the-pool-i" class="level3" data-number="3.2.1">
-<h3 data-number="3.2.1" class="anchored" data-anchor-id="estimating-the-number-of-infected-people-in-the-pool-i"><span class="header-section-number">3.2.1</span> Estimating the number of infected people in the pool (<em>i</em>)</h3>
+<section id="simulating-the-number-of-infected-people-in-the-pool-i" class="level3" data-number="3.2.1">
+<h3 data-number="3.2.1" class="anchored" data-anchor-id="simulating-the-number-of-infected-people-in-the-pool-i"><span class="header-section-number">3.2.1</span> Simulating the number of infected people in the pool (<em>i</em>)</h3>
 <p>Instead of simply multiplying prevalence by pool size, which can misleadingly suggest zero infections when prevalence is low (e.g., with 1% prevalence in a pool of 50, the average is 0.5, not 0, however we cannot have 0.5 people infected), we use the Poisson distribution as it provides a more realistic model by calculating the probabilities of finding different numbers of infected individuals in the pool as rare, independent events. This approach is particularly useful when dealing with large pools and low infection rates. Hence the number of infected people in a pool can be represented by:</p>
 <p><span class="math display">\[ i \sim Poisson(\lambda=pr \times ps) \]</span></p>
 </section>
@@ -322,7 +322,7 @@ window.Quarto = {
 <span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>Using Gemini, I copied the entries from Table 1 of the paper to a tsv file locally called <code>hiv-data.csv</code>. Should we continue with this study, I may provide more information on the sample processing, etc, that they used.</p>
+<p>To transfer the data from the paper (Table 1) to a tsv file, I copy pasted the text into Gemini and asked it to format the data as a tsv file. Should we continue with this study, I may provide more information on the sample processing, etc, that they used.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
@@ -348,75 +348,93 @@ num (3): Total no. of reads, No. of unique reads, HBV
 <span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># subset to patience of interest and calculate ra of hiv</span></span>
 <span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>our_data <span class="ot">&lt;-</span> our_data <span class="sc">%&gt;%</span> <span class="fu">filter</span>(ART <span class="sc">==</span> <span class="st">"No"</span>) <span class="sc">%&gt;%</span> <span class="fu">mutate</span>(<span class="st">"hiv_ra"</span> <span class="ot">=</span> HIV <span class="sc">/</span> <span class="st">`</span><span class="at">Total no. of reads</span><span class="st">`</span>)</span>
 <span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Find the i2ra factor by taking the average of hiv ra over all HIV people.</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>i2ra <span class="ot">&lt;-</span> our_data <span class="sc">%&gt;%</span> <span class="fu">summarize</span>(<span class="at">mean =</span> <span class="fu">mean</span>(hiv_ra)) <span class="sc">%&gt;%</span> <span class="fu">pull</span>(mean)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(our_data, <span class="fu">aes</span>(<span class="at">x =</span> hiv_ra)) <span class="sc">+</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_histogram</span>(<span class="at">binwidth =</span> <span class="fl">0.00002</span>, <span class="at">color =</span> <span class="st">"black"</span>, <span class="at">fill =</span> <span class="st">"skyblue"</span>) <span class="sc">+</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Distribution of HIV Relative Abundance (hiv_ra)"</span>,</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"HIV Relative Abundance (hiv_ra)"</span>,</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Count"</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="prelim-analysis_files/figure-html/load-data-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<details class="code-fold">
+<summary>Code</summary>
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Find the i2ra factor by taking the average of hiv ra over all HIV people.</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>i2ra <span class="ot">&lt;-</span> our_data <span class="sc">%&gt;%</span> <span class="fu">summarize</span>(<span class="at">mean =</span> <span class="fu">mean</span>(hiv_ra)) <span class="sc">%&gt;%</span> <span class="fu">pull</span>(mean)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<p>Of the 35 subjects in this study, all of whom have HIV, I only analyzed the 14 that were not taking ART. Of those 14 people, 4 people had undetectable levels viral nucleic acid present in their blood. We get an i2ra factor of 7e-5.</p>
+<p>Of the 35 subjects in this study, all of whom have HIV, I only analyzed the 14 that were not taking ART. Of those 14 people, 4 people had undetectable levels viral nucleic acid present in their blood. Using all 14 people (including those with undetectable levels of HIV viral nucleic acid), and taking the arithmetic mean (NB: will use geometric mean going forward), we get an i2ra factor of 7e-5.</p>
 <p>Using a 1% weekly incidence with a doubling rate of 362 days (see Appendix: Doubling rate per day for HIV-like pathogen), we get a prevalence of ~75% (nb: this is quite high, for covid-19 it was 1.2% at a 3 day doubling rate; this is a bit unintuitive for me). We can then set the read threshold of detection to be 100, try a pool size of 100, and run 1000 runs of the simulation. This gives us a required median sequencing depth of about 1.79 × 10^6 or ~1.79 million reads per week.</p>
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>static_prevalence <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (static_prevalence) {</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  prevalence <span class="ot">&lt;-</span> <span class="fl">0.01</span></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Inherent to pathogen</span></span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  doubling_period_days <span class="ot">&lt;-</span> <span class="dv">362</span></span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="co"># We set this</span></span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  weekly_incidence <span class="ot">&lt;-</span> <span class="fl">0.01</span></span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  get_prevalence <span class="ot">&lt;-</span> <span class="cf">function</span>() {</span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    days_in_week <span class="ot">&lt;-</span> <span class="dv">7</span></span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    growth_factor <span class="ot">&lt;-</span> <span class="dv">2</span> <span class="sc">^</span> (<span class="dv">1</span> <span class="sc">/</span> doubling_period_days)</span>
-<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    weekly_growth <span class="ot">&lt;-</span> growth_factor <span class="sc">^</span> days_in_week</span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    prevalence <span class="ot">&lt;-</span> weekly_incidence <span class="sc">*</span> (weekly_growth) <span class="sc">/</span> (weekly_growth <span class="sc">-</span> <span class="dv">1</span>)</span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">return</span>(prevalence)</span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  prevalence <span class="ot">&lt;-</span> <span class="fu">get_prevalence</span>()</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>prevalence</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>static_prevalence <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (static_prevalence) {</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  prevalence <span class="ot">&lt;-</span> <span class="fl">0.01</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Inherent to pathogen</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  doubling_period_days <span class="ot">&lt;-</span> <span class="dv">362</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="co"># We set this</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  weekly_incidence <span class="ot">&lt;-</span> <span class="fl">0.01</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  get_prevalence <span class="ot">&lt;-</span> <span class="cf">function</span>() {</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    days_in_week <span class="ot">&lt;-</span> <span class="dv">7</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    growth_factor <span class="ot">&lt;-</span> <span class="dv">2</span> <span class="sc">^</span> (<span class="dv">1</span> <span class="sc">/</span> doubling_period_days)</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    weekly_growth <span class="ot">&lt;-</span> growth_factor <span class="sc">^</span> days_in_week</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    prevalence <span class="ot">&lt;-</span> weekly_incidence <span class="sc">*</span> (weekly_growth) <span class="sc">/</span> (weekly_growth <span class="sc">-</span> <span class="dv">1</span>)</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">return</span>(prevalence)</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>  prevalence <span class="ot">&lt;-</span> <span class="fu">get_prevalence</span>()</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>prevalence</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>[1] 0.7510906</code></pre>
 </div>
 <details class="code-fold">
 <summary>Code</summary>
-<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>pool_size <span class="ot">&lt;-</span> <span class="dv">100</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>detection_threshold <span class="ot">&lt;-</span> <span class="dv">100</span></span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>number_of_simulations <span class="ot">&lt;-</span> <span class="dv">1000</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Get sequencing depth</span></span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>seq_depth_results <span class="ot">&lt;-</span> <span class="fu">find_seq_depth</span>(</span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">prevalence =</span> prevalence,</span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">i2ra_factor =</span> i2ra,</span>
-<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">pool_size =</span> pool_size,</span>
-<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">detection_threshold =</span> <span class="dv">100</span>,</span>
-<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">simulations =</span> number_of_simulations</span>
-<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>seq_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
-<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>proc_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
-<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>seq_depth <span class="ot">&lt;-</span> seq_depth_results<span class="sc">$</span>summary<span class="sc">$</span>median_depth</span>
-<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>seq_depth</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>pool_size <span class="ot">&lt;-</span> <span class="dv">100</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>detection_threshold <span class="ot">&lt;-</span> <span class="dv">100</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>number_of_simulations <span class="ot">&lt;-</span> <span class="dv">1000</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Get sequencing depth</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>seq_depth_results <span class="ot">&lt;-</span> <span class="fu">find_seq_depth</span>(</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">prevalence =</span> prevalence,</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">i2ra_factor =</span> i2ra,</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">pool_size =</span> pool_size,</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">detection_threshold =</span> <span class="dv">100</span>,</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">simulations =</span> number_of_simulations</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>seq_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>proc_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>seq_depth <span class="ot">&lt;-</span> seq_depth_results<span class="sc">$</span>summary<span class="sc">$</span>median_depth</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>seq_depth</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 1768893</code></pre>
+<pre><code>[1] 1792478</code></pre>
 </div>
 <details class="code-fold">
 <summary>Code</summary>
-<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>weekly_cost <span class="ot">&lt;-</span> <span class="fu">find_total_cost</span>(</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">seq_depth =</span> seq_depth,</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_seq =</span> seq_c,</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_proc =</span> proc_c,</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_sample =</span> <span class="dv">100</span>,</span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">num_samples =</span> pool_size</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>yearly_cost <span class="ot">&lt;-</span> weekly_cost <span class="sc">*</span> <span class="dv">52</span></span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>yearly_cost</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>weekly_cost <span class="ot">&lt;-</span> <span class="fu">find_total_cost</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">seq_depth =</span> seq_depth,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_seq =</span> seq_c,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_proc =</span> proc_c,</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_sample =</span> <span class="dv">100</span>,</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">num_samples =</span> pool_size</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>yearly_cost <span class="ot">&lt;-</span> weekly_cost <span class="sc">*</span> <span class="dv">52</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>yearly_cost</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>[1] 520459.9</code></pre>
+<pre><code>[1] 520466</code></pre>
 </div>
 </div>
 <p>To calculate the total cost, we use the numbers from the <a href="https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4">p2ra paper</a> for the sequencing cost and processing costs, which comes out to be about $2500 each for 1 billion read pairs. For the blood sample costs, I use the higher end of <a href="https://docs.google.com/document/d/1rF5fCTDDqa0lZ8Fms9forA-pHMsB2fCcr3dn9ynrW1U/edit?tab=t.0">our estimate</a>, which puts us at about $100 per sample. Plugging this into our equation with the sequencing depth, we get a cost of about $520K per year.</p>
@@ -474,20 +492,20 @@ num (3): Total no. of reads, No. of unique reads, HBV
 <div class="cell">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>seq_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>proc_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>seq_depth <span class="ot">&lt;-</span> <span class="fl">8e5</span></span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>weekly_cost <span class="ot">&lt;-</span> <span class="fu">find_total_cost</span>(</span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">seq_depth =</span> seq_depth,</span>
-<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_seq =</span> seq_c,</span>
-<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_proc =</span> proc_c,</span>
-<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_sample =</span> <span class="dv">10</span>,</span>
-<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">num_samples =</span> pool_size</span>
-<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>yearly_cost <span class="ot">&lt;-</span> weekly_cost <span class="sc">*</span> <span class="dv">52</span></span>
-<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>yearly_cost</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>seq_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>proc_c <span class="ot">&lt;-</span> <span class="dv">2500</span> <span class="sc">/</span> <span class="fl">1e9</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>seq_depth <span class="ot">&lt;-</span> <span class="fl">8e5</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>weekly_cost <span class="ot">&lt;-</span> <span class="fu">find_total_cost</span>(</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">seq_depth =</span> seq_depth,</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_seq =</span> seq_c,</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_proc =</span> proc_c,</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">cost_of_sample =</span> <span class="dv">10</span>,</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">num_samples =</span> pool_size</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>yearly_cost <span class="ot">&lt;-</span> weekly_cost <span class="sc">*</span> <span class="dv">52</span></span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>yearly_cost</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 <div class="cell-output cell-output-stdout">
 <pre><code>[1] 52208</code></pre>
@@ -495,8 +513,8 @@ num (3): Total no. of reads, No. of unique reads, HBV
 </div>
 <p>This gives us a similar cost, of about 52k per year, so we know that our cost modeling is not too far off.</p>
 </section>
-<section id="doubling-rate-per-day-for-hiv-like-pathogen" class="level2" data-number="6.2">
-<h2 data-number="6.2" class="anchored" data-anchor-id="doubling-rate-per-day-for-hiv-like-pathogen"><span class="header-section-number">6.2</span> Doubling rate per day for HIV-like pathogen</h2>
+<section id="doubling-rate-hiv" class="level2" data-number="6.2">
+<h2 data-number="6.2" class="anchored" data-anchor-id="doubling-rate-hiv"><span class="header-section-number">6.2</span> Doubling rate per day for HIV-like pathogen</h2>
 <p>For the purpose of epidemiological modeling, a crucial parameter is the <strong>doubling time</strong>—the time it takes for the number of infected individuals to double. To establish a scientifically-grounded value for a new, HIV-like pathogen, we must look to the early phase of the HIV epidemic in the 1970s and 1980s, before widespread awareness and effective treatments altered its natural course.</p>
 <p>The standard epidemiological formula for this calculation is:</p>
 <p><span class="math display">\[T_d = \frac{\ln(2)}{r}\]</span></p>
