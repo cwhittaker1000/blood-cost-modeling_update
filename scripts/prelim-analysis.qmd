@@ -24,30 +24,93 @@ We'd like to estimate the cost of running a blood biosurveillance system in the 
 
 # Background
 
-Before modeling, let's consider the typical process of sequencing a virus within a population till we detect it:
+**We want to know the annual sequencing depth required to detect a pathogen at X% cumulative incidence with a $r$ weekly growth rate.**
 
-- There is the general population, and the virus of interest is circulating in that population with some incidence
-- We sample people from this population to get our pool
-- For each person in the pool, there is some probability that they're infected with our virus, and them being infected with the virus will potentially result in some portion of reads from their blood being from our virus of interest
-- We sequence this pool (or multiple pools) until we hit the number of reads that we determine to be sufficient for detection of the aforementioned virus
+## Key Model Assumptions
 
-Given this information, we make modeling decisions:
+1. **Exponential Growth**: Infections grow deterministically exponentially to reach cumulative incidence $X$% with growth rate $r$.
+2. **Fixed Shedding**: Each infected person sheds for exactly 12 weeks at constant rate
+3. **Random Sampling**: Each week, pool represents random sample from total population. Probability of getting sampled is independent of your probability of getting sampled.
+4. **Constant mew**: All infected individuals contribute same relative abundance $mew$
+5. **Poisson Reads**: Read counts follow Poisson distribution around expected value
+6. **Independent Weeks**: Sampling is independent across weeks (with replacement)
 
-**First**, we assume that an HIV like-pathogen is at X% weekly incidence, growing exponentially with a doubling time of [355 days](@doubling-rate-hiv). We choose a weekly incidence as this is what has been done for the wastewater and nasal swab work (NB: They did this for viruses with acute infections, we may want to change this for our use-case). This pathogen is HIV like in that it has similar characteristics to HIV in-terms of transmission and shedding. Using the [get_prevalence() function from the nasal swab post](https://naobservatory.org/blog/investigating-the-sensitivity-of-pooled-swab-sampling-for-pathogen-early-detection/), which assumes exponential growth in the number of cases, we can derive the prevalence of this HIV like-pathogen:
+## Modeling
 
-\begin{align*}
-\text{growth factor} &= 2^{\frac{1}{\text{doubling period days}}} \\
-\text{weekly growth} &= \text{growth factor}^{\text{days in week}} \\
-\text{prevalence} &= \text{weekly incidence} \times \frac{\text{weekly growth}}{\text{weekly growth}-1}
-\end{align*}
+### 1. Exponential Growth Model
+
+The number of new infections in week $t$ follows exponential growth:
+
+$$I(t) = I_1 \cdot e^{r(t-1)}$$
+
+where $I_1$ is the initial number of infections in week 1, and $r$ is the weekly growth rate.
+
+**Constraint**: The total cumulative infections must equal the target:
+
+$$\sum_{t=1}^{T} I(t) = \frac{X}{100} \cdot N$$
+
+**Solving for parameters**: Given the exponential sum formula:
+
+$$\sum_{t=1}^{T} I_1 \cdot e^{r(t-1)} = I_1 \cdot \frac{e^{rT} - 1}{e^r - 1} = \frac{X \cdot N}{100}$$
+
+Given the growth rate $r$ cumulative incidence $X$ and initial infection number $I_1$ , we can solve for the time period $T$ in weeks, that it would take for the pathogen to hit $X$ cumulative incidence.
+### 2. Shedding Population
+
+The number of people shedding in week t should be those who were infected in the **previous** 12 weeks:
+
+$$S(t) = \sum_{k=\max(1, t-11)}^{t} I(k)$$
+
+This accounts for the 12-week shedding period after infection.
+
+### 3. Sampling Process
+
+The key insight is that **we're sampling without replacement from a finite population with two types of people** (shedding vs. non-shedding). 
+
+Each week, we randomly sample $P$ people from the total population $N$. The number of shedding individuals captured in our sample follows a hypergeometric distribution:
+
+$$\text{Sampled shedders} \sim \text{Hypergeometric}(N, S(t), P)$$
+
+The probability mass function is:
+
+$$P(\text{sampled shedders} = k) = \frac{\binom{S(t)}{k} \binom{N-S(t)}{P-k}}{\binom{N}{P}}$$
+
+### 4. Read Detection
+
+The expected number of pathogen reads detected in week $t$ is:
+
+$$E[R(t)] = \text{(sampled shedders)} / P \times i2ra \times D$$
+
+The actual reads follow a Poisson distribution around this expectation:
+
+$$R(t) \sim \text{Poisson}(\text{(sampled shedders)} / P \times i2ra \times D)$$
+
+where D is our sequencing depth.
+### 5. Detection Criterion
+
+Detection occurs when cumulative reads over all weeks exceed the threshold:
+
+$$R_{cum} = \sum_{t=1}^{T} R(t) \geq \theta$$
+
+### 6. Detection Probability
+
+For a given set of parameters $(X, P, D)$, the detection probability is:
+
+$$p_{detect}(X, P, D) = P(R_{cum} \geq \theta)$$
+
+This is estimated through Monte Carlo simulation due to the complex stochastic dependencies.
+
+## Objective Function
+
+The goal is to find the minimum sequencing depth $D^*$ that achieves a target detection probability $p_{target}$ (typically 95%):
+
+$$D^* = \min{D : p_{detect}(X, P, D) \geq p_{target}}$$
+Once the optimal weekly depth $D*$ is found, annual sequencing demand is $D^*_{yr} = 52 \times D*$
 
 **Second**, we estimate the expected relative abundance of the HIV like-pathogen for an infected person by using existing metagenomic sequencing data from people with HIV (NB: this should become "people early in their infection with HIV" once we change the data). We call this the *i2ra* ratio.
 
 We look for studies where 1) people were confirmed to be HIV positive, 2) these individual's samples were sequenced separately, 3) they provide the number of HIV reads, along with the total sequencing depth, and 4) optionally, they are early in their infection of HIV. We prefer the studies where they provide this information in a table, as it's the fastest to process, and doesn't require us running their data through our pipeline (NB: we will need to highlight the differences between the studies methods if we decide to go with multiple). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that (it would be good to factor in large error bars), or analyze them separately, similar to how [p2ra does it](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4).
 
-**Third**, we assume that we'll be running sequencing on pooled samples. This will be cheaper than individual samples, and in some cases in the real world, we may not be able to get the samples individually.
-
-# Methods
+# Cost modeling
 
 We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample collection cost, then summing them over all the weeks in a year:
 
@@ -66,54 +129,6 @@ where:
 - cost of single sample: the cost of purchasing and shipping a single sample
 - number of samples: the number of samples we get; this will be our pool size (NB: this is an error that I need to fix; right now I assume number of samples is pool size)
 
-The pool size will play a major role in our ability to detect this HIV like-pathogen. Of these other variables, the main one that we will need to derive is sequencing depth. The rest can be collected from the literature or other sources. I first introduce some notations:
-
-- $ps$: pool size (user-defined)
-- $i$: number of infected people
-- $i2ra$: infected person to relative abundance ratio
-- $n$: sequencing depth
-- $d$: detection threshold (user-defined)
-- $pr$: prevalence
-- $ra$: relative abundance
-
-Given this notation along with a user-defined pool size (number of individuals in a sample) and detection threshold (number of reads necessary to say the HIV like-pathogen is detected), we can find the sequencing depth to detect our HIV-like pathogen using the following equation:
-
-$$ n = \frac{d}{(\frac{i}{ps}) \times i2ra}$$
-
-Since there are some non-deterministic factors that will affect the sequencing depth, we'll run multiple simulations to calculate our sequencing depth, which will then provide us with a distribution of sequencing depths. We can then use the median sequencing depth in the "Total cost per week" equation above (*NB: one thing to add is confidence intervals to this estimate*).
-
-Below I discuss how to calculate the *i2ra* ratio using pre-existing untargeted metagenomic sequencing data from people with HIV, then show how to calculate the sequencing depth using the *i2ra* ratio.
-
-## Estimating the infected person to relative abundance ratio (*i2ra*)
-
-To estimate the *i2ra* rato for our HIV-like pathogen, we can take an existing untargeted metagenomic sequencing study that was done on people with confirmed HIV and find the HIV relative abundance by diving the HIV read count by the total read count for those with HIV(before cleaning of course). We can then plot the distribution of HIV relative abundance individuals and find the average HIV relative abundance over those individuals with HIV to get our *i2ra* ratio:
-
-$$ i2ra = \frac{1}{M} \sum_{m \in \text{HIV individuals}}^M \frac{m_{\text{HIV read count}}}{m_{\text{Total read count}}} $$
-
-## Estimating sequencing depth (*n*)
-
-Estimating sequence depth requires 1) estimating the number of infected people in the pool, 2) calculating the relative abundance of HIV in those pools, and 3) using the read threshold with the relative abundance to get the sequencing depth.
-
-### Simulating the number of infected people in the pool (*i*)
-
-Instead of simply multiplying prevalence by pool size, which can misleadingly suggest zero infections when prevalence is low (e.g., with 1% prevalence in a pool of 50, the average is 0.5, not 0, however we cannot have 0.5 people infected), we use the Poisson distribution as it provides a more realistic model by calculating the probabilities of finding different numbers of infected individuals in the pool as rare, independent events. This approach is particularly useful when dealing with large pools and low infection rates. Hence the number of infected people in a pool can be represented by:
-
-$$ i \sim Poisson(\lambda=pr \times ps) $$
-
-### Estimating the relative abundance of our HIV-like pathogen in the pool (*ra*)
-
-We calculate the relative abundance of the pool by applying the *i2ra* factor to the fraction of the pool that is infected:
-
-$$ ra = \frac{i}{ps} \times i2ra $$
-
-*NB: We may want to take a more rigorous approach here by using a distribution to model the relative abundance of the pathogen. More details on this can be found in the section labeled improvements.*
-
-### Estimate the required sequencing depth using the read threshold (*d*)
-
-To figure out sequencing depth, we can divide the read threshold by the relative abundance of the pathogen in the pool:
-
-$$ n = \frac{d}{ ra } $$
-
 # Results
 
 To test the validity of the model, and get some initial results, I decided to analyze [one study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/). This study looked at how AIDS alters the plasma virome (*NB: for the final dataset(s) we're going to focus on people earlier on in HIV infection status; see the section labeled "Consider the timing of infection in the *i2ra* estimate" under the "Improvements" header to understand why*), and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.
@@ -123,55 +138,150 @@ To test the validity of the model, and get some initial results, I decided to an
 #| output: false
 
 library(tidyverse)
+library(furrr)
+library(dplyr)
 
 ```
 
 ```{r}
-#| label: setup-functions
+#| label: aux-functions
 
-# Define function to calculate read depth, and store some summary statistics
-# 1. Use poisson distribution to estimate the number of infected people
-# 2. Calculate ra based on infected people in pool
-# 3. Calculate total number of reads for detection
-
-find_seq_depth <- function(prevalence, i2ra_factor, pool_size, detection_threshold, simulations) {
-  results <- data.frame(
-    n_infected = numeric(simulations),
-    expected_ra = numeric(simulations),
-    required_depth = numeric(simulations)
-  )
-  for (i in 1:simulations) {
-    n_infected <- rpois(1, pool_size * prevalence)
-    if (n_infected == 0) {
-      # Can't divide by 0
-      expected_ra <- 1e-15
-    } else {
-      expected_ra <- (n_infected / pool_size) * i2ra_factor
-    }
-    required_depth <- detection_threshold / expected_ra
-    results$n_infected[i] <- n_infected
-    results$expected_ra[i] <- expected_ra
-    results$required_depth[i] <- required_depth
+# Function to solve for T given r, I1, and X
+solve_time_period <- function(r, I1, X_pct, N) {
+  target_total <- (X_pct / 100) * N
+  if (r == 0) {
+    # Constant infections case
+    return(target_total / I1)
+  } else {
+    # Exponential growth case
+    # T = (1/r) * ln(1 + (X*N*(e^r - 1))/(100*I1))
+    exp_r <- exp(r)
+    ratio <- (X_pct * N * (exp_r - 1)) / (100 * I1)
+    T <- (1/r) * log(1 + ratio)
+    return(T)
   }
-  finite_depths <- results$required_depth[is.finite(results$required_depth)]
-  summary_stats <- list(
-    mean_infected = mean(results$n_infected),
-    median_infected = median(results$n_infected),
-    zero_pools_pct = 100 * mean(results$n_infected == 0),
-    mean_ra = mean(results$expected_ra[results$n_infected > 0]),
-    median_ra = median(results$expected_ra[results$n_infected > 0]),
-    mean_depth = mean(finite_depths),
-    median_depth = median(finite_depths),
-    depth_95pct = quantile(finite_depths, 0.95),
-    depth_ci_lower = quantile(finite_depths, 0.025),
-    depth_ci_upper = quantile(finite_depths, 0.975),
-    depth_iqr_lower = quantile(finite_depths, 0.25),
-    depth_iqr_upper = quantile(finite_depths, 0.75)
-  )
-  return(list(results = results, summary = summary_stats))
 }
 
-# Calculate total cost
+# Function to calculate infections at time t
+calc_infections <- function(t, I1, r) {
+  I1 * exp(r * (t - 1))
+}
+
+# Function to calculate shedding population at time t
+calc_shedding <- function(t, I1, r, shedding_weeks) {
+  start_week <- max(1, t - shedding_weeks + 1)
+  end_week <- t
+  weeks <- start_week:end_week
+  infections <- sapply(weeks, function(w) calc_infections(w, I1, r))
+  sum(infections)
+}
+
+```
+
+```{r}
+#| label: simulate-epidemic
+
+# Function to simulate one epidemic scenario
+simulate_epidemic <- function(r, I1, X_pct, P, D, n_sims = 1000) {
+  # Solve for time period T
+  T <- solve_time_period(r, I1, X_pct, N)
+  T <- ceiling(T)  # Round up to whole weeks
+  if (T <= 0) {
+    warning("Invalid time period calculated")
+    return(0)
+  }
+  # Pre-calculate shedding population for each week
+  shedding_pop <- sapply(1:T, function(t) {
+    calc_shedding(t, I1, r, shedding_weeks)
+  })
+  # Run simulations
+  detections <- replicate(n_sims, {
+    total_reads <- 0
+    for (t in 1:T) {
+      # Sample from population using hypergeometric
+      S_t <- round(shedding_pop[t])
+      S_t <- min(S_t, N)  # Cap at population size
+      if (S_t > 0 && P < N) {
+        # For large populations, approximate with binomial
+        sampled_shedders <- rbinom(1, P, S_t / N)
+        # Generate reads from Poisson distribution
+        expected_reads <- sampled_shedders / P * i2ra * D
+        weekly_reads <- rpois(1, expected_reads)
+        total_reads <- total_reads + weekly_reads
+      }
+    }
+    total_reads >= theta
+  })
+  mean(detections)
+}
+
+```
+
+```{r}
+#| label: calculate-depths
+
+# function to find minimum sequencing depth
+find_min_depth <- function(r, i1, x_pct, p, n, theta, i2ra, shedding_weeks, target_prob = 0.95) {
+  # binary search for minimum depth
+  d_low <- 1e6
+  d_high <- 1e9
+  tolerance <- 0.01
+  while ((d_high - d_low) / d_low > tolerance) {
+    d_mid <- (d_low + d_high) / 2
+    prob <- simulate_epidemic(r, i1, x_pct, p, d_mid, n_sims = 500)
+    if (prob >= target_prob) {
+      d_high <- d_mid
+    } else {
+      d_low <- d_mid
+    }
+  }
+  return(d_high)
+}
+
+# Function to validate parameters and show epidemic dynamics
+validate_scenario <- function(r, I1, X_pct, N) {
+  T <- solve_time_period(r, I1, X_pct, N)
+  T_weeks <- ceiling(T)
+  # Calculate total infections to verify
+  total_infections <- I1 * (exp(r * T_weeks) - 1) / (exp(r) - 1)
+  target_infections <- (X_pct / 100) * N
+  cat("Scenario validation:\n")
+  cat(sprintf("Growth rate (r): %.3f per week\n", r))
+  cat(sprintf("Initial infections (I1): %.0f\n", I1))
+  cat(sprintf("Target cumulative incidence: %.1f%%\n", X_pct))
+  cat(sprintf("Calculated time period: %.1f weeks\n", T))
+  cat(sprintf("Rounded time period: %d weeks\n", T_weeks))
+  cat(sprintf("Target total infections: %.0f\n", target_infections))
+  cat(sprintf("Actual total infections: %.0f\n", total_infections))
+  cat(sprintf("Difference: %.1f%%\n", 100 * (total_infections - target_infections) / target_infections))
+  return(T_weeks)
+}
+
+# Function to analyze single scenario
+analyze_scenario <- function(r, I1, X_pct, N, theta, i2ra, shedding_weeks, target_prob = 0.95, pool_sizes = seq(1000, 5000, 500)) {
+  # Validate scenario first
+  T_weeks <- validate_scenario(r, I1, X_pct, N)
+  # Setup parallel processing
+  plan(multisession, workers = 4)
+  # Analyze different pool sizes
+  results <- tibble(P = pool_sizes) %>%
+    mutate(
+      min_depth = future_map_dbl(
+        P,
+        ~find_min_depth(r, I1, X_pct, .x, N, theta, i2ra, shedding_weeks, target_prob),
+        .options = furrr_options(seed = 42)
+      ),
+      annual_depth = min_depth * 52,
+    )
+  return(results)
+}
+
+```
+
+
+
+```{r}
+#| label: setup-functions
 
 find_total_cost <- function(seq_depth, cost_of_seq, cost_of_proc, cost_of_sample, num_samples) {
   return(seq_depth * (cost_of_seq + cost_of_proc) + cost_of_sample * num_samples)
@@ -181,16 +291,15 @@ find_total_cost <- function(seq_depth, cost_of_seq, cost_of_proc, cost_of_sample
 
 To transfer the data from the paper (Table 1) to a tsv file, I copy pasted the text into Gemini and asked it to format the data as a tsv file. Should we continue with this study, I may provide more information on the sample processing, etc, that they used.
 
+
 ```{r}
 #| label: load-data
 
 # load in data
-data <- read_csv("../data/hiv-data.csv")
-# select columns of interest
-our_data <- data %>% select("HIV", "HIV load (RNA copies/ml)", "Total no. of reads", "No. of unique reads", "ART")
-our_data <- our_data %>% rowid_to_column("sample_id")
-# subset to patience of interest and calculate ra of hiv
-our_data <- our_data %>% filter(ART == "No") %>% mutate("hiv_ra" = HIV / `Total no. of reads`)
+data <- read_csv("../data/new-hiv-data.csv")
+
+our_data <- data %>% 
+  mutate(hiv_ra = hiv_reads / read_depth)
 
 ggplot(our_data, aes(x = hiv_ra)) +
   geom_histogram(binwidth = 0.00002, color = "black", fill = "skyblue") +
@@ -206,7 +315,6 @@ ggplot(our_data, aes(x = hiv_ra)) +
 i2ra <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
 
 ```
-
 Of the 35 subjects in this study, all of whom have HIV, I only analyzed the 14 that were not taking ART. Of those 14 people, 4 people had undetectable levels viral nucleic acid present in their blood. Using all 14 people (including those with undetectable levels of HIV viral nucleic acid), and taking the arithmetic mean (NB: will use geometric mean going forward), we get an i2ra factor of 7e-5.
 
 Using a 1% weekly incidence with a doubling rate of 362 days (see Appendix: Doubling rate per day for HIV-like pathogen), we get a prevalence of ~75% (nb: this is quite high, for covid-19 it was 1.2% at a 3 day doubling rate; this is a bit unintuitive for me). We can then set the read threshold of detection to be 100, try a pool size of 100, and run 1000 runs of the simulation. This gives us a required median sequencing depth of about 1.79 × 10^6 or ~1.79 million reads per week.
@@ -214,37 +322,31 @@ Using a 1% weekly incidence with a doubling rate of 362 days (see Appendix: Doub
 ```{r}
 #| label: find-seq-depth
 
-static_prevalence <- FALSE
-if (static_prevalence) {
-  prevalence <- 0.01
-} else {
-  # Inherent to pathogen
-  doubling_period_days <- 362
-  # We set this
-  weekly_incidence <- 0.01
-  get_prevalence <- function() {
-    days_in_week <- 7
-    growth_factor <- 2 ^ (1 / doubling_period_days)
-    weekly_growth <- growth_factor ^ days_in_week
-    prevalence <- weekly_incidence * (weekly_growth) / (weekly_growth - 1)
-    return(prevalence)
-  }
-  prevalence <- get_prevalence()
+## Model parameters
+# CONSTANTS
+N <- 300e6  # US population
+theta <- 100  # detection threshold (reads)
+shedding_weeks <- 12
+target_prob <- 0.95
+r <- 0.0136      # weekly growth based on HIV
+I1 <- 100     # 1 initial infections gave a period of 782 weeks at 1% cumulative incidence, so we'll start with 100 gives a period of 434 weeks at 1$ cumulative incidence
+
+
+# User defined
+X_pct <- 1.0  # 1% cumulative incidence
+pool_sizes <-  c(1000, 5000, 10000) # pool sizes to simulate
+
+# Example usage function
+run_example <- function(r, I1, X_pct, N, theta, i2ra, shedding_weeks, target_prob = 0.95, pool_sizes = seq(1000, 5000, 500)) {
+  # Example parameters
+  cat("Running example analysis...\n")
+  results <- analyze_scenario(r, I1, X_pct, N, theta, i2ra, shedding_weeks, target_prob, pool_sizes)
+  cat("\nResults:\n")
+  print(results)
+  return(results)
 }
-prevalence
 
-pool_size <- 100
-detection_threshold <- 100
-number_of_simulations <- 1000
-
-# Get sequencing depth
-seq_depth_results <- find_seq_depth(
-  prevalence = prevalence,
-  i2ra_factor = i2ra,
-  pool_size = pool_size,
-  detection_threshold = 100,
-  simulations = number_of_simulations
-)
+run_example(r, I1, X_pct, N, theta, i2ra, shedding_weeks, target_prob, pool_sizes)
 
 seq_c <- 2500 / 1e9
 proc_c <- 2500 / 1e9
@@ -261,7 +363,6 @@ weekly_cost <- find_total_cost(
 
 yearly_cost <- weekly_cost * 52
 yearly_cost
-
 ```
 
 To calculate the total cost, we use the numbers from the [p2ra paper](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4) for the sequencing cost and processing costs, which comes out to be about $2500 each for 1 billion read pairs. For the blood sample costs, I use the higher end of [our estimate](https://docs.google.com/document/d/1rF5fCTDDqa0lZ8Fms9forA-pHMsB2fCcr3dn9ynrW1U/edit?tab=t.0), which puts us at about $100 per sample. Plugging this into our equation with the sequencing depth, we get a cost of about $520K per year.
