@@ -89,24 +89,31 @@ $$R_{cum} = \sum_{t=1}^{T} R(t) \geq \theta$$
 
 ### Detection Probability
 
-For a given set of parameters $(X, P, D)$, the detection probability is:
+Due to the stochastic nature of this modeling, it's possible that by time T, we do not hit the read detection threshold, hence, we continue to run the simulation until detection occurs and record the cumulative incidence at that moment.
 
-$$p_{detect}(X, P, D) = P(R_{cum} \geq \theta)$$
+For each simulation:
 
-This is estimated through Monte Carlo simulation due to the complex stochastic dependencies.
+1. Run the epidemic week-by-week with stochastic sampling
+2. Continue until cumulative reads exceed the threshold: $\sum_{t=1}^{T_{detect}} R(t) \geq \theta$
+3. Record the cumulative incidence at detection time $T_{detect}$
 
-## Objective Function
+This yields a distribution of detection incidences across simulations, from which we can extract:
 
-The goal is to find the minimum sequencing depth $D^*$ that achieves a target detection probability $p_{target}$ (typically 95%):
+- $P(\text{detect before X\% incidence})$ for any target X
+- Median detection incidence and interquartile range
+- Full characterization of early vs late detection scenarios
 
-$$D^* = \min{D : p_{detect}(X, P, D) \geq p_{target}}$$
-Once the optimal weekly depth $D*$ is found, annual sequencing demand is $D^*_{yr} = 52 \times D*$
+The optimal sequencing depth $D^*$ per week is then found via binary search to satisfy:
+$$D^* = \min\{D : P(\text{detect before X\% incidence}) \geq p_{target}\}$$
 
-**Second**, we estimate the expected relative abundance of the HIV like-pathogen for an infected person by using existing metagenomic sequencing data from people with HIV (NB: this should become "people early in their infection with HIV" once we change the data). We call this the *mew* ratio.
+## Estimate the relative abundance of an infected individual (mew)
 
-We look for studies where 1) people were confirmed to be HIV positive, 2) these individual's samples were sequenced separately, 3) they provide the number of HIV reads, along with the total sequencing depth, and 4) optionally, they are early in their infection of HIV. We prefer the studies where they provide this information in a table, as it's the fastest to process, and doesn't require us running their data through our pipeline (NB: we will need to highlight the differences between the studies methods if we decide to go with multiple). In the case that we analyze multiple datasets (which is probably likely), we would want to account for the fact that the datasets use different methods and correct for that (it would be good to factor in large error bars), or analyze them separately, similar to how [p2ra does it](https://www.medrxiv.org/content/10.1101/2023.12.22.23300450v4).
 
-# Cost modeling
+We estimate the expected relative abundance of the HIV like-pathogen for an infected person by using existing metagenomic sequencing data from people with HIV early in their infection. We call this the *mew* ratio.
+
+We look for studies where 1) people were confirmed to be HIV positive, 2) these individual's samples were sequenced separately, 3) they provide the number of HIV reads, along with the total sequencing depth, and 4) they are early in their infection of HIV. We prefer the studies where they provide this information in a table, as it's the fastest to process, and doesn't require us running their data through our pipeline (NB: we will need to highlight the differences between the studies methods if we decide to go with multiple).
+
+## Cost modeling
 
 We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample collection cost, then summing them over all the weeks in a year:
 
@@ -127,7 +134,7 @@ where:
 
 # Results
 
-To test the validity of the model, and get some initial results, I decided to analyze [one study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3807392/). This study looked at how AIDS alters the plasma virome (*NB: for the final dataset(s) we're going to focus on people earlier on in HIV infection status; see the section labeled "Consider the timing of infection in the *mew* estimate" under the "Improvements" header to understand why*), and it is a perfect candidate according to the reasons I laid out above, namely that it fits all three criteron, and this information can be found in Table 1 of the paper. For this analysis, I only analyzed the samples of all people not on ART, since it appears to [change the rate of HIV nucleic acid found in blood](https://pmc.ncbi.nlm.nih.gov/articles/PMC4392820/), which may make the HIV read count lower than it actually is. Additionally, I use the standardized viral count for HIV that they provide in Table 1, we will probably want the unstandardized viral count if we do decide to move forward with this dataset.
+We analyze the results from one study, https://doi.org/10.1128/jvi.00804-18, which "characterized HIV-1 diversity in the blood and female genital tract (FGT) within 2 weeks after detection of infection in three women enrolled in a unique prospective cohort in South Africa." While sequencing reads of HIV for plasma is given, sequnecing dpeth of the sample is given as a range, "40 million to 250 million", so we take the geometric mean to get a read depth of 100 million reads. For the reads, we take the last date from each person.
 
 ```{r}
 #| label: load-packages
@@ -194,13 +201,11 @@ simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_we
   # Run epidemic week by week until detection
   week <- 1
   total_reads <- 0
-  
   while (week <= max_weeks && total_reads < theta) {
     # Calculate shedding population for current week
     S_t <- calc_shedding(week, I1, r, shedding_weeks)
     S_t <- round(S_t)
     S_t <- min(S_t, N)  # Cap at population size
-    
     if (S_t > 0 && P < N) {
       # For large populations, approximate with binomial
       sampled_shedders <- rbinom(1, P, S_t / N)
@@ -208,7 +213,6 @@ simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_we
       expected_reads <- sampled_shedders / P * mew * D
       weekly_reads <- rpois(1, expected_reads)
       total_reads <- total_reads + weekly_reads
-      
       if (total_reads >= theta) {
         # Detection occurred!
         cumulative_incidence <- calc_cumulative_incidence(week, I1, r, N)
@@ -222,7 +226,6 @@ simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_we
     }
     week <- week + 1
   }
-  
   # No detection within max_weeks
   return(list(
     detected = FALSE, 
@@ -243,17 +246,13 @@ analyze_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_wee
   results <- replicate(n_sims, {
     simulate_detection_distribution(r, I1, P, D, theta, mew, shedding_weeks, N)
   }, simplify = FALSE)
-  
   # Extract detection data
   detected_sims <- results[sapply(results, function(x) x$detected)]
-  
   if (length(detected_sims) == 0) {
     return(list(detection_rate = 0, summary_stats = NA))
   }
-  
   # Extract cumulative incidence at detection
   detection_incidences <- sapply(detected_sims, function(x) x$cumulative_incidence)
-  
   # Calculate summary statistics
   summary_stats <- list(
     detection_rate = length(detected_sims) / n_sims,
@@ -264,7 +263,6 @@ analyze_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_wee
     min_incidence = min(detection_incidences),
     max_incidence = max(detection_incidences)
   )
-  
   return(list(
     detection_rate = summary_stats$detection_rate,
     summary_stats = summary_stats,
@@ -282,15 +280,12 @@ calc_detection_probability <- function(detection_results, threshold_incidence) {
   # Calculate P(detect | X% incidence) from saved results
   # detection_results: output from analyze_detection_distribution()
   # threshold_incidence: X% incidence threshold
-  
   if (detection_results$detection_rate == 0) {
     return(0)
   }
-  
   # Count simulations that detected at or before threshold
   detected_early <- sum(detection_results$raw_data <= threshold_incidence)
   total_sims <- length(detection_results$raw_data) / detection_results$detection_rate
-  
   return(detected_early / total_sims)
 }
 
@@ -326,13 +321,7 @@ find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, t
   final_p_detect <- calc_detection_probability(final_results, target_incidence)
   cat(sprintf("\nOptimal depth: %.2e reads/week\n", high))
   cat(sprintf("Final P(detect | %.1f%% incidence) = %.2f%%\n", target_incidence, final_p_detect * 100))
-  return(list(
-    optimal_depth = high,
-    final_prob = final_p_detect,
-    tested_depths = tested_depths,
-    tested_probs = tested_probs,
-    final_results = final_results
-  ))
+  return(list(optimal_depth = high, final_prob = final_p_detect, tested_depths = tested_depths, tested_probs = tested_probs, final_results = final_results))
 }
 
 ```
@@ -348,7 +337,6 @@ find_total_cost <- function(seq_depth, cost_of_seq, cost_of_proc, cost_of_sample
 
 ```
 
-To transfer the data from the paper (Table 1) to a tsv file, I copy pasted the text into Gemini and asked it to format the data as a tsv file. Should we continue with this study, I may provide more information on the sample processing, etc, that they used.
 
 
 ```{r}
@@ -373,13 +361,49 @@ ggplot(our_data, aes(x = hiv_ra)) +
 # Find the mew factor by taking the average of hiv ra over all HIV people.
 mew <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
 
-```
-Of the 35 subjects in this study, all of whom have HIV, I only analyzed the 14 that were not taking ART. Of those 14 people, 4 people had undetectable levels viral nucleic acid present in their blood. Using all 14 people (including those with undetectable levels of HIV viral nucleic acid), and taking the arithmetic mean (NB: will use geometric mean going forward), we get an mew factor of 7e-5.
+mew <- our_data %>% 
+  summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>% 
+  pull(geo_mean)
 
-Using a 1% weekly incidence with a doubling rate of 362 days (see Appendix: Doubling rate per day for HIV-like pathogen), we get a prevalence of ~75% (nb: this is quite high, for covid-19 it was 1.2% at a 3 day doubling rate; this is a bit unintuitive for me). We can then set the read threshold of detection to be 100, try a pool size of 100, and run 1000 runs of the simulation. This gives us a required median sequencing depth of about 1.79 × 10^6 or ~1.79 million reads per week.
+
+```
+This study has 3 subjects, who provide us with mew of 5.59e-5, calculated via geometric mean.
+
+Using this, along with the assumption of a population of 300 million people, 100 reads as our detection threshold, a growth rate of 0.01336 which we derived from existing Nature study, initial infection population of 100. We run simulations, where we vary the pool size, and cumulative incidence.
+
+
+ 
+```{r}
+#| label: run-analysis-temp
+
+# Run analysis to get detection distribution
+#cat("Analyzing detection distribution...\n")
+#results <- analyze_detection_distribution(r, I1, P, D, theta, mew, shedding_weeks, N, n_sims)
+#
+### Display summary statistics
+#cat("\nDetection Distribution Summary:\n")
+#cat(sprintf("Detection rate: %.2f%%\n", results$detection_rate * 100))
+#if (results$detection_rate > 0) {
+#  cat(sprintf("Mean cumulative incidence at detection: %.2f%%\n", results$summary_stats$mean_incidence))
+#  cat(sprintf("Median cumulative incidence at detection: %.2f%%\n", results$summary_stats$median_incidence))
+#  cat(sprintf("IQR: %.2f%% - %.2f%%\n", results$summary_stats$q25_incidence, results$summary_stats$q75_incidence))
+#  cat(sprintf("Range: %.2f%% - %.2f%%\n", results$summary_stats$min_incidence, results$summary_stats$max_incidence))
+#}
+#
+### Calculate detection probabilities at various cumulative incidence thresholds
+#thresholds <- c(1.0, 5.0, 10.0)  # % cumulative incidence
+#cat("\n\nDetection Probabilities at Different Cumulative Incidence Levels:\n")
+#for (threshold in thresholds) {
+#  p_detect <- calc_detection_probability(results, threshold)
+#  cat(sprintf("P(detect | %.1f%% cumulative incidence) = %.2f%%\n", threshold, p_detect * 100))
+#}
+```
 
 ```{r}
 #| label: find-seq-depth
+
+library(future)
+library(future.apply)
 
 ## Model parameters
 # CONSTANTS
@@ -395,55 +419,75 @@ P <- 1000  # pool size
 D <- 1e7   # sequencing depth to test (10 million reads)
 n_sims <- 1000  # number of simulations
 
-# Run analysis to get detection distribution
-#cat("Analyzing detection distribution...\n")
-#results <- analyze_detection_distribution(r, I1, P, D, theta, mew, shedding_weeks, N, n_sims)
-#
-## Display summary statistics
-#cat("\nDetection Distribution Summary:\n")
-#cat(sprintf("Detection rate: %.2f%%\n", results$detection_rate * 100))
-#if (results$detection_rate > 0) {
-#  cat(sprintf("Mean cumulative incidence at detection: %.2f%%\n", results$summary_stats$mean_incidence))
-#  cat(sprintf("Median cumulative incidence at detection: %.2f%%\n", results$summary_stats$median_incidence))
-#  cat(sprintf("IQR: %.2f%% - %.2f%%\n", results$summary_stats$q25_incidence, results$summary_stats$q75_incidence))
-#  cat(sprintf("Range: %.2f%% - %.2f%%\n", results$summary_stats$min_incidence, results$summary_stats$max_incidence))
-#}
-#
-## Calculate detection probabilities at various cumulative incidence thresholds
-#thresholds <- c(0.5, 1.0, 2.0, 5.0, 10.0)  # % cumulative incidence
-#cat("\n\nDetection Probabilities at Different Cumulative Incidence Levels:\n")
-#for (threshold in thresholds) {
-#  p_detect <- calc_detection_probability(results, threshold)
-#  cat(sprintf("P(detect | %.1f%% cumulative incidence) = %.2f%%\n", threshold, p_detect * 100))
-#}
-#
-## Find optimal sequencing depths for different target incidences
-#cat("\n\nFinding optimal sequencing depths...\n")
-#target_incidences <- c(0.5, 1.0, 2.0, 5.0)  # Different cumulative incidence targets
-#optimal_results <- list()
-#
-#for (i in seq_along(target_incidences)) {
+# Find optimal sequencing depths for different target incidences
+cat("\n\nFinding optimal sequencing depths...\n")
+target_incidences <- c(1, 5, 10)  # Different cumulative incidence targets
+pool_sizes <- c(1000, 3000, 5000)  # Different cumulative incidence targets
+optimal_results <- list()
+
+
+# Parallel
+workers <- max(1, parallel::detectCores() - 1)
+plan(multisession, workers = workers)
+
+param_grid <- expand.grid(
+  target_incidence = target_incidences,
+  pool_size       = pool_sizes,
+  stringsAsFactors = FALSE
+)
+
+#optimal_results <- future_apply(
+#  X   = param_grid,          # each row is one job
+#  MARGIN = 1,
+#  FUN = function(row) {
+#    find_optimal_depth(
+#      target_incidence = row["target_incidence"],
+#      target_prob      = 0.95,
+#      r = r, I1 = I1, P = row["pool_size"],
+#      theta = theta, mew = mew,
+#      shedding_weeks = shedding_weeks,
+#      N = N, n_sims = 500
+#    )
+#  },
+#  future.seed = TRUE         # reproducible RNG streams
+#)
+
+## After the future_apply() call finishes
+#results_dir <- "../results"        # adjust as needed
+#if (!dir.exists(results_dir)) dir.create(results_dir)
+
+#saveRDS(optimal_results,
+#        file = file.path(results_dir, "optimal_results.rds"))
+
+optimal_results <- readRDS("../results/optimal_results.rds")
+
+
+
+
+
+#for (i in target_incidences) {
+#for (j in pool_sizes) {
 #  cat(sprintf("\n--- Target: %.1f%% cumulative incidence ---\n", target_incidences[i]))
 #  optimal_results[[i]] <- find_optimal_depth(
 #    target_incidence = target_incidences[i],
 #    target_prob = 0.95,
-#    r = r, I1 = I1, P = P, theta = theta, 
-#    mew = i2ra, shedding_weeks = shedding_weeks, 
+#    r = r, I1 = I1, P = j, theta = theta, 
+#    mew = mew, shedding_weeks = shedding_weeks, 
 #    N = N, n_sims = 500
 #  )
 #}
-#
-## Create summary table of optimal depths
-#optimal_summary <- tibble(
-#  target_incidence = target_incidences,
-#  optimal_depth = sapply(optimal_results, function(x) x$optimal_depth),
-#  achieved_prob = sapply(optimal_results, function(x) x$final_prob),
-#  annual_reads = sapply(optimal_results, function(x) x$optimal_depth * 52)
-#)
-#
-#cat("\n\nOptimal Sequencing Depth Summary:\n")
-#print(optimal_summary)
-#
+#}
+
+optimal_summary <- param_grid %>%                       #  n rows  = length(optimal_results)
+  mutate(
+    optimal_depth = sapply(optimal_results, `[[`, "optimal_depth"),
+    achieved_prob = sapply(optimal_results, `[[`, "final_prob"),
+    annual_reads  = optimal_depth * 52
+  )
+
+cat("\n\nOptimal Sequencing Depth Summary:\n")
+print(optimal_summary)
+
 ## Cost analysis for a specific depth
 #selected_depth <- 1e7  # 10 million reads
 #seq_c <- 2500 / 1e9
