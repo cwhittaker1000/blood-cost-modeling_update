@@ -20,87 +20,73 @@ format:
 
 # Methods
 
-We estimate the cost of running a blood-based biosurveillance system in the US for a year that is capable of detecting an HIV like-pathogen by developing a cost modeling framework. As a part of this modeling framework, we must determine the sequencing depth required to detect this HIV like-pathogen. We simulate an outbreak, where we vary the cumulative incidence, and pool size to get a better idea of how things vary (we model this as one large pool that we sequence). This pathogen is HIV-like in that this pathogen has a similar growth rate, shedding pattern, and constant rate of shedding, all of which we derive from existing data about HIV.
+We develop a cost modeling framework to estimate the annual expense of operating a blood-based biosurveillance system in the United States designed to detect the emergence of an HIV-like pathogen. For this analysis, we define detection as the moment when the number of sequencing reads attributable to this pathogen surpasses a predefined threshold. By referring to the pathogen as "HIV-like," we mean it exhibits similar epidemiological characteristics to HIV, including growth rate, shedding patterns, and a constant shedding rate derived from existing HIV data.
+
+Accurately estimating surveillance costs necessitates modeling potential pathogen outbreaks. Thus, we simulate outbreaks under varying cumulative incidence levels and different pooling strategies, focusing on scenarios where all samples collected each week are combined into a single large pool for sequencing. This approach allows us to determine the optimal sequencing depth required to reliably detect the pathogen, directly informing our overall cost estimates.
 
 ## Modeling an outbreak through exponential growth
 
-Viral outbreaks are commonly modeled as growing deterministically exponentially, so we stay in similar lines with this modeling (NB: cite). We model the number of new infections in each week, $t$, as $I(t) = I_1 \cdot e^{r(t-1)}$, where $r$ is the growth rate of the pathogen, and $I_1$ is the number of initial infections in week 1. We use an existing study for the growth rate (https://www.nature.com/articles/nature19827), set the population, N, to be around the existing US population, 300 M; we set $I_1$ to be 100 as this seems reasonable and vary the cumulative incidence X%, we can get a ballpark estimate for the number of weeks it would take to hit our desired cumulative incidence.
+Viral outbreaks are commonly modeled using a simple deterministic exponential growth framework, a standard practice for initial outbreak simulations (NB: insert appropriate citation). We simulate the number of new infections in each week, $t$, using the exponential growth model $I(t) = I_1 \cdot e^{r(t-1)}$, where $r$ is the pathogen's exponential growth rate, and $I_1$ is the initial number of infections in the first week of the simulation. To ensure a realistic outbreak scenario, we set $I_1 = 100$, which provides a sufficient initial seed for the epidemic and avoids premature extinction (NB: Dan said to set this high enough such that an outbreak actually happens, probably should find a citation for this).
+
+We employ a pre-defined growth rate drawn from a previous epidemiological analysis of HIV (NB: https://www.nature.com/articles/nature19827). We also set the total susceptible population, $N$, to approximate the current US population size of approximately 300 million. By varying the cumulative incidence threshold ($X\%$), this approach allows us to estimate roughly how many weeks would be needed to reach our desired outbreak size.
+
+Importantly, reaching the specified cumulative incidence threshold in the model does not necessarily imply real-world detection at that exact time point. Actual detection might occur with a lag, meaning the outbreak could continue unnoticed beyond this theoretical threshold. Nevertheless, this initial estimate provides a critical reference point, guiding the approximate simulation duration required for further modeling steps.
 
 ## Shedding population and pattern
 
-To simplify the modeling, we assume each person sheds for 12 weeks for the same constant rate, mew, which we estimate from existing data. The number of people shedding in week $t$ should be those who were infected in the **previous** 12 weeks: $S(t) = \sum_{k=\max(1, t-11)}^{t} I(k)$. This accounts for the 12-week shedding period after infection.
+To simplify our modeling approach, we assume that each infected individual sheds the pathogen continuously at the same constant rate over a period of 12 weeks following infection (NB: cite the study that lenni referred to that showed the 12 week major shedding). This constant shedding rate, denoted as $\mu$, is derived from existing data on similar viral pathogens. Thus, the number of individuals actively shedding in a given week $t$, denoted $S(t)$, consists of all individuals infected during the previous 12 weeks:
 
-We estimate the expected relative abundance of the HIV like-pathogen for an infected person by using existing metagenomic sequencing data from people with HIV early in their infection. We call this the *mew* ratio.
+$S(t) = \sum_{k=\max(1, t-11)}^{t} I(k).$
 
-We look for studies where 1) people were confirmed to be HIV positive, 2) these individual's samples were sequenced separately, 3) they provide the number of HIV reads, along with the total sequencing depth, and 4) they are early in their infection of HIV. We prefer the studies where they provide this information in a table, as it's the fastest to process, and doesn't require us running their data through our pipeline (NB: we will need to highlight the differences between the studies methods if we decide to go with multiple).
+We estimate the expected relative abundance of our modeled HIV-like pathogen per infected person (the shedding rate $\mu$), using existing metagenomic sequencing data from individuals early in their HIV infection. The rationale for focusing on early infection data is that pathogen nucleic acid levels typically peak during the initial stages of infection, providing an approximation of the maximum shedding intensity.
 
+Specifically, we select studies based on the following criteria:
+
+1. Participants are confirmed HIV-positive.
+2. Sequencing was performed individually for each participant, ensuring clarity in viral abundance measurements.
+3. The studies explicitly report both the number of HIV sequence reads and the total sequencing depth.
+4. Samples were collected during early stages of HIV infection.
+
+We prioritize studies that provide these data clearly in tabular form, allowing efficient extraction and analysis without additional bioinformatic processing. In cases where multiple studies are utilized, differences in their methodologies will be carefully noted and discussed.
 
 ## Sampling process + read generation
 
-Also assume that sampling is independent across weeks 
+We assume that sampling is independent across weeks, meaning each individual's chance of being sampled in one week does not affect their probability of selection in subsequent weeks.
 
-Each week, we sample $P$ people from the total population $N$. This pool represents random sample from total population. Probability of getting sampled is independent of your probability of getting sampled. Additionally, given that $N$ is sufficiently large, we sample with replacement.
+Each week, we randomly select a sample of size $P$ from the total population $N$. Given that $N$ is large, sampling is performed with replacement, ensuring each individual has an equal and independent probability of being selected.
 
-Each week, we randomly sample $P$ people from the total population $N$. The number of shedding individuals captured in our sample follows a binomial distribution:
+The number of actively shedding individuals detected in our weekly sample is modeled by a binomial distribution, $\text{Sampled shedders} \sim \text{Binomial}\left(P, \frac{S(t)}{N}\right)$, where $S(t)$ represents the number of individuals actively shedding the pathogen in week $t$.
 
-$$\text{Sampled shedders} \sim \text{Binomial}(P, S(t)/N)$$
+From this sampled group, we calculate the expected number of pathogen reads detected each week as, $E[R(t)] = \frac{\text{Sampled shedders}}{P} \times \mu \times D$. Here, $\mu$ denotes the shedding rate—the expected relative abundance of pathogen per infected individual—and $D$ is the sequencing depth.
 
-The expected number of pathogen reads detected in week $t$ is:
-
-$$E[R(t)] = \text{(sampled shedders)} / P \times mew \times D$$
-
-Read counts follow Poisson distribution around expected value
+The actual observed pathogen reads in any given week $t$ are assumed to follow a Poisson distribution around this expected value: $R(t) \sim \text{Poisson}\left(\frac{\text{Sampled shedders}}{P} \times \mu \times D\right)$. This framework allows us to robustly model and predict weekly pathogen read detections.
 
 
-The actual reads follow a Poisson distribution around this expectation:
+## Detection probability
 
-$$R(t) \sim \text{Poisson}(\text{(sampled shedders)} / P \times mew \times D)$$
+Due to the inherent randomness and complexity of infectious disease dynamics, we use Monte Carlo simulations to capture the variability in epidemic trajectories and detection outcomes. Monte Carlo simulations involve repeatedly running computational models that advance the epidemic week by week, applying probabilistic rules to reflect both the uncertainty and natural variability in pathogen spread and detection.
 
-where D is our sequencing depth.
+In our approach, each simulated epidemic progresses weekly, with stochastic sampling methods used to reflect the uncertainty inherent in detecting pathogen reads within a large population. Simulations continue until cumulative pathogen reads surpass a predefined detection threshold:
 
-## Detection criterion
+$\sum_{t=1}^{T_{detect}} R(t) \geq \theta$
 
-Detection occurs when cumulative reads over all weeks exceed the threshold:
+Upon reaching this threshold, we record the cumulative incidence of infections, quantifying the epidemic scale precisely at the point of detection.
 
-$$R_{cum} = \sum_{t=1}^{T} R(t) \geq \theta$$
+By conducting numerous Monte Carlo simulations, we generate a robust distribution of potential detection incidences. This distribution allows us to compute the probability of detecting the pathogen before reaching a specified cumulative incidence threshold (e.g., X%), as well as the median incidence at detection and the interquartile range (IQR). Thus, we comprehensively characterize potential scenarios of early versus late detection.
 
-### Detection Probability
+Finally, we identify the optimal weekly sequencing depth $D^*$ through a binary search method. This procedure determines the minimal sequencing depth necessary to achieve our targeted detection probability, defined as:
 
-Due to the stochastic nature of this modeling, it's possible that by time T, we do not hit the read detection threshold, hence, we continue to run the simulation until detection occurs and record the cumulative incidence at that moment.
+$D^* = \min\{D : P(\text{detect before } X\% \text{ incidence}) \geq p_{target}\}$
 
-For each simulation:
+## Cost Modeling
 
-1. Run the epidemic week-by-week with stochastic sampling
-2. Continue until cumulative reads exceed the threshold: $\sum_{t=1}^{T_{detect}} R(t) \geq \theta$
-3. Record the cumulative incidence at detection time $T_{detect}$
+We estimate the annual surveillance cost by decomposing weekly expenditures into sequencing-related and sample collection components. Each week, the cost includes the product of sequencing depth $D$ and the combined cost per read for sequencing and processing ($C_{\text{seq}} + C_{\text{proc}}$), as well as the product of the number of samples $P$ and the per-sample collection cost $C_{\text{samp}}$. The annual cost $C_{\text{annual}}$ is then calculated by multiplying this weekly cost by 52 weeks:
 
-This yields a distribution of detection incidences across simulations, from which we can extract:
+$C_{\text{annual}} = [(D \times (C_{\text{seq}} + C_{\text{proc}})) + (C_{\text{samp}} \times P)] \times 52$
 
-- $P(\text{detect before X\% incidence})$ for any target X
-- Median detection incidence and interquartile range
-- Full characterization of early vs late detection scenarios
+In this model, we define the variables as follows: sequencing depth $D$ represents the number of reads required weekly to detect the pathogen reliably, $C_{\text{seq}}$ is the sequencing cost per read specific to the chosen sequencing platform, and $C_{\text{proc}}$ is the per-read cost associated with processing, including sample preparation and library preparation. Additionally, $C_{\text{samp}}$ denotes the cost of collecting and shipping a single sample, and $P$ is the total number of samples processed each week.
 
-The optimal sequencing depth $D^*$ per week is then found via binary search to satisfy:
-$$D^* = \min\{D : P(\text{detect before X\% incidence}) \geq p_{target}\}$$
-
-## Cost modeling
-
-We estimate our annual cost by breaking the weekly cost into two parts, 1) sequencing based costs, and 2) per-sample collection cost, then summing them over all the weeks in a year:
-
-\begin{align*}
-\text{Total cost per week} &= \\
-& \underbrace{\text{sequencing depth} \times (\text{cost of sequencing} + \text{cost of processing})}_{\text{Sequencing based costs}} + \\
-&\underbrace{\text{cost of single sample} \times \text{number of samples}}_{\text{Per-sample collection cost}} \\
-\text{Total cost per year} &= \text{Total cost per week} \times 52
-\end{align*}
-
-where:
-
-- sequencing depth: the number of reads required to detect our HIV-like pathogen
-- cost of sequencing: the cost of sequencing a pool of samples using an arbitrary sequencing platform
-- cost of processing: the cost of sample preparation and library preparation
-- cost of single sample: the cost of purchasing and shipping a single sample
-- number of samples: the number of samples we get; this will be our pool size
+Our cost analysis relies on several key assumptions: sequencing depth $D$ is optimized according to detection probability thresholds; sequencing and processing costs per read remain constant and consistent across all samples; per-sample collection costs encompass all logistics and remain uniform; and weekly sampling and sequencing processes do not vary throughout the year.
 
 # Results
 
@@ -266,7 +252,7 @@ find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, t
               target_incidence, target_prob * 100))
   # Binary search bounds
   low <- 1e4    # Start with very low depth
-  high <- 1e9   # Maximum reasonable depth
+  high <- 1e11   # Maximum reasonable depth
   # Track results for visualization
   tested_depths <- c()
   tested_probs <- c()
@@ -392,20 +378,20 @@ n_sims <- 1000  # number of simulations
 # Find optimal sequencing depths for different target incidences
 cat("\n\nFinding optimal sequencing depths...\n")
 target_incidences <- c(1, 5, 10)  # Different cumulative incidence targets
-pool_sizes <- c(1000, 3000, 5000)  # Different cumulative incidence targets
+pool_sizes <- c(16, 64, 128, 256, 512, 1024, 2048)  # Different cumulative incidence targets
 optimal_results <- list()
 
 
 # Parallel
-workers <- max(1, parallel::detectCores() - 1)
-plan(multisession, workers = workers)
-
-param_grid <- expand.grid(
-  target_incidence = target_incidences,
-  pool_size       = pool_sizes,
-  stringsAsFactors = FALSE
-)
-
+#workers <- max(1, parallel::detectCores() - 1)
+#plan(multisession, workers = workers)
+#
+#param_grid <- expand.grid(
+#  target_incidence = target_incidences,
+#  pool_size       = pool_sizes,
+#  stringsAsFactors = FALSE
+#)
+#
 #optimal_results <- future_apply(
 #  X   = param_grid,          # each row is one job
 #  MARGIN = 1,
@@ -422,12 +408,12 @@ param_grid <- expand.grid(
 #  future.seed = TRUE         # reproducible RNG streams
 #)
 
-## After the future_apply() call finishes
+# After the future_apply() call finishes
 #results_dir <- "../results"        # adjust as needed
 #if (!dir.exists(results_dir)) dir.create(results_dir)
-
+#
 #saveRDS(optimal_results,
-#        file = file.path(results_dir, "optimal_results.rds"))
+#       file = file.path(results_dir, "optimal_results.rds"))
 
 optimal_results <- readRDS("../results/optimal_results.rds")
 
@@ -457,23 +443,33 @@ optimal_summary <- param_grid %>%                       #  n rows  = length(opti
 
 cat("\n\nOptimal Sequencing Depth Summary:\n")
 print(optimal_summary)
+optimal_summary <- as_tibble(optimal_summary)
+
+optimal_summary
+optimal_summary %>%
+  arrange(target_incidence)
 
 ## Cost analysis for a specific depth
-selected_depth <- 1e7  # 10 million reads
 seq_c <- 2500 / 1e9
 proc_c <- 2500 / 1e9
+sample_c <- 100
 
-weekly_cost <- find_total_cost(
-  seq_depth = selected_depth,
-  cost_of_seq = seq_c,
-  cost_of_proc = proc_c,
-  cost_of_sample = 100,
-  num_samples = P
-)
+# 1. add a new column with the cost for each depth
+optimal_summary <- optimal_summary %>% 
+  mutate(total_cost_per_year = find_total_cost(
+           seq_depth      = optimal_depth,
+           cost_of_seq    = seq_c,
+           cost_of_proc   = proc_c,
+           cost_of_sample = sample_c,
+           num_samples    = pool_size
+         )*52)
 
-yearly_cost <- weekly_cost * 52
-cat(sprintf("\n\nCost Analysis for D = %.0e reads/week:\n", selected_depth))
-cat(sprintf("Weekly cost: $%.0f\n", weekly_cost))
-cat(sprintf("Annual cost: $%.0f\n", yearly_cost))
+optimal_summary %>% select(target_incidence, pool_size, optimal_depth, total_cost_per_year) %>%
+  arrange(total_cost_per_year)
+
 ```
 
+
+#@TODO 
+
+Rerun, and make some plots
