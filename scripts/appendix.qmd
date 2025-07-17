@@ -20,11 +20,11 @@ format:
 
 # Methods
 
-We develop a cost modeling framework to estimate the annual expense of operating a blood-based biosurveillance system in the United States designed to detect the emergence of an HIV-like pathogen. For this analysis, we define detection as the moment when the number of sequencing reads attributable to this pathogen surpasses a predefined threshold. By referring to the pathogen as "HIV-like," we mean it exhibits similar epidemiological characteristics to HIV, including growth rate, shedding patterns, and a constant shedding rate derived from existing HIV data.
+We develop a cost modeling framework to estimate the annual expense of operating a blood-based biosurveillance system in the United States designed to detect the emergence of an HIV-like pathogen. For this analysis, we define detection as the moment when the number of sequencing reads attributable to this pathogen surpasses a predefined threshold. By referring to the pathogen as "HIV-like," we mean it exhibits similar epidemiological characteristics to HIV, including growth rate, shedding patterns, and a constant shedding rate derived from existing untargeted metagenomic sequencing data on people with HIV.
 
 Accurately estimating surveillance costs necessitates modeling potential pathogen outbreaks. Thus, we simulate outbreaks under varying cumulative incidence levels and different pooling strategies, focusing on scenarios where all samples collected each week are combined into a single large pool for sequencing. This approach allows us to determine the optimal sequencing depth required to reliably detect the pathogen, directly informing our overall cost estimates.
 
-## Modeling an outbreak through exponential growth
+## Outbreak Modeling via Exponential Growth
 
 Viral outbreaks are commonly modeled using a simple deterministic exponential growth framework, a standard practice for initial outbreak simulations (NB: insert appropriate citation). We simulate the number of new infections in each week, $t$, using the exponential growth model $I(t) = I_1 \cdot e^{r(t-1)}$, where $r$ is the pathogen's exponential growth rate, and $I_1$ is the initial number of infections in the first week of the simulation. To ensure a realistic outbreak scenario, we set $I_1 = 100$, which provides a sufficient initial seed for the epidemic and avoids premature extinction (NB: Dan said to set this high enough such that an outbreak actually happens, probably should find a citation for this).
 
@@ -32,28 +32,19 @@ We employ a pre-defined growth rate drawn from a previous epidemiological analys
 
 Importantly, reaching the specified cumulative incidence threshold in the model does not necessarily imply real-world detection at that exact time point. Actual detection might occur with a lag, meaning the outbreak could continue unnoticed beyond this theoretical threshold. Nevertheless, this initial estimate provides a critical reference point, guiding the approximate simulation duration required for further modeling steps.
 
-## Shedding population and pattern
+## Shedding Dynamics and Population
 
 To simplify our modeling approach, we assume that each infected individual sheds the pathogen continuously at the same constant rate over a period of 12 weeks following infection (NB: cite the study that lenni referred to that showed the 12 week major shedding). This constant shedding rate, denoted as $\mu$, is derived from existing data on similar viral pathogens. Thus, the number of individuals actively shedding in a given week $t$, denoted $S(t)$, consists of all individuals infected during the previous 12 weeks:
 
 $S(t) = \sum_{k=\max(1, t-11)}^{t} I(k).$
 
-We estimate the expected relative abundance of our modeled HIV-like pathogen per infected person (the shedding rate $\mu$), using existing metagenomic sequencing data from individuals early in their HIV infection. The rationale for focusing on early infection data is that pathogen nucleic acid levels typically peak during the initial stages of infection, providing an approximation of the maximum shedding intensity.
+We estimate the expected relative abundance of our modeled HIV-like pathogen per infected person (the shedding rate $\mu$), using existing metagenomic sequencing data from individuals early in their HIV infection. The rationale behind focusing on sequencing data from people early in their HIV infection is because HIV's viremia is quite variable during the infection period, but is well known to shed quite a lot during the initial weeks of infections, hence, we wanted to capture this pattern (NB: improve explanation). 
 
-Specifically, we select studies based on the following criteria:
-
-1. Participants are confirmed HIV-positive.
-2. Sequencing was performed individually for each participant, ensuring clarity in viral abundance measurements.
-3. The studies explicitly report both the number of HIV sequence reads and the total sequencing depth.
-4. Samples were collected during early stages of HIV infection.
-
-We prioritize studies that provide these data clearly in tabular form, allowing efficient extraction and analysis without additional bioinformatic processing. In cases where multiple studies are utilized, differences in their methodologies will be carefully noted and discussed.
-
-## Sampling process + read generation
+## Sampling and Read Generation
 
 We assume that sampling is independent across weeks, meaning each individual's chance of being sampled in one week does not affect their probability of selection in subsequent weeks.
 
-Each week, we randomly select a sample of size $P$ from the total population $N$. Given that $N$ is large, sampling is performed with replacement, ensuring each individual has an equal and independent probability of being selected.
+Each week, we randomly select a sample of size $P$, which represents our pool size, from the total population $N$. Given that $N$ is large, sampling is performed with replacement, ensuring each individual has an equal and independent probability of being selected.
 
 The number of actively shedding individuals detected in our weekly sample is modeled by a binomial distribution, $\text{Sampled shedders} \sim \text{Binomial}\left(P, \frac{S(t)}{N}\right)$, where $S(t)$ represents the number of individuals actively shedding the pathogen in week $t$.
 
@@ -62,15 +53,11 @@ From this sampled group, we calculate the expected number of pathogen reads dete
 The actual observed pathogen reads in any given week $t$ are assumed to follow a Poisson distribution around this expected value: $R(t) \sim \text{Poisson}\left(\frac{\text{Sampled shedders}}{P} \times \mu \times D\right)$. This framework allows us to robustly model and predict weekly pathogen read detections.
 
 
-## Detection probability
+## Detection Probability via Monte Carlo Simulations
 
 Due to the inherent randomness and complexity of infectious disease dynamics, we use Monte Carlo simulations to capture the variability in epidemic trajectories and detection outcomes. Monte Carlo simulations involve repeatedly running computational models that advance the epidemic week by week, applying probabilistic rules to reflect both the uncertainty and natural variability in pathogen spread and detection.
 
-In our approach, each simulated epidemic progresses weekly, with stochastic sampling methods used to reflect the uncertainty inherent in detecting pathogen reads within a large population. Simulations continue until cumulative pathogen reads surpass a predefined detection threshold:
-
-$\sum_{t=1}^{T_{detect}} R(t) \geq \theta$
-
-Upon reaching this threshold, we record the cumulative incidence of infections, quantifying the epidemic scale precisely at the point of detection.
+In our approach, each simulated epidemic progresses weekly, with stochastic sampling methods used to reflect the uncertainty inherent in detecting pathogen reads within a large population. Simulations continue until cumulative pathogen reads surpass a predefined detection threshold: $\sum_{t=1}^{T_{detect}} R(t) \geq \theta$. Upon reaching this threshold, we record the cumulative incidence of infections, quantifying the epidemic scale precisely at the point of detection.
 
 By conducting numerous Monte Carlo simulations, we generate a robust distribution of potential detection incidences. This distribution allows us to compute the probability of detecting the pathogen before reaching a specified cumulative incidence threshold (e.g., X%), as well as the median incidence at detection and the interquartile range (IQR). Thus, we comprehensively characterize potential scenarios of early versus late detection.
 
@@ -78,19 +65,21 @@ Finally, we identify the optimal weekly sequencing depth $D^*$ through a binary 
 
 $D^* = \min\{D : P(\text{detect before } X\% \text{ incidence}) \geq p_{target}\}$
 
-## Cost Modeling
+## Cost Modeling Framework
 
 We estimate the annual surveillance cost by decomposing weekly expenditures into sequencing-related and sample collection components. Each week, the cost includes the product of sequencing depth $D$ and the combined cost per read for sequencing and processing ($C_{\text{seq}} + C_{\text{proc}}$), as well as the product of the number of samples $P$ and the per-sample collection cost $C_{\text{samp}}$. The annual cost $C_{\text{annual}}$ is then calculated by multiplying this weekly cost by 52 weeks:
 
 $C_{\text{annual}} = [(D \times (C_{\text{seq}} + C_{\text{proc}})) + (C_{\text{samp}} \times P)] \times 52$
 
-In this model, we define the variables as follows: sequencing depth $D$ represents the number of reads required weekly to detect the pathogen reliably, $C_{\text{seq}}$ is the sequencing cost per read specific to the chosen sequencing platform, and $C_{\text{proc}}$ is the per-read cost associated with processing, including sample preparation and library preparation. Additionally, $C_{\text{samp}}$ denotes the cost of collecting and shipping a single sample, and $P$ is the total number of samples processed each week.
+In this model, we define the variables as follows: sequencing depth $D$ represents the number of reads required weekly to detect the pathogen reliably, $C_{\text{seq}}$ is the sequencing cost per read specific to the chosen sequencing platform, and $C_{\text{proc}}$ is the per-read cost associated with processing, including sample preparation and library preparation. Additionally, $C_{\text{samp}}$ denotes the cost of collecting and shipping a single sample, and $P$ is the total number of samples processed each week (also known, as a our pool size from earlier; NB: make sure don't double explain).
 
 Our cost analysis relies on several key assumptions: sequencing depth $D$ is optimized according to detection probability thresholds; sequencing and processing costs per read remain constant and consistent across all samples; per-sample collection costs encompass all logistics and remain uniform; and weekly sampling and sequencing processes do not vary throughout the year.
 
 # Results
 
-We analyze the results from one study, https://doi.org/10.1128/jvi.00804-18, which "characterized HIV-1 diversity in the blood and female genital tract (FGT) within 2 weeks after detection of infection in three women enrolled in a unique prospective cohort in South Africa." While sequencing reads of HIV for plasma is given, sequnecing dpeth of the sample is given as a range, "40 million to 250 million", so we take the geometric mean to get a read depth of 100 million reads. For the reads, we take the last date from each person.
+*Note: This text is way more rough than the text above. This isn't even text, but really notes.*
+
+We analyze the results from one study, https://doi.org/10.1128/jvi.00804-18, which "characterized HIV-1 diversity in the blood and female genital tract (FGT) within 2 weeks after detection of infection in three women enrolled in a unique prospective cohort in South Africa." While sequencing reads of HIV for plasma is given, sequnecing dpeth of the sample is given as a range, "40 million to 250 million", so we take the geometric mean to get a read depth of 100 million reads. We take the last sample from each person as the count of their HIV reads (which is all within at most an 11 day period).
 
 ```{r}
 #| label: load-packages
@@ -98,6 +87,9 @@ We analyze the results from one study, https://doi.org/10.1128/jvi.00804-18, whi
 
 library(tidyverse)
 library(furrr)
+library(scales)
+library(future)
+library(future.apply)
 library(dplyr)
 
 ```
@@ -299,23 +291,15 @@ find_total_cost <- function(seq_depth, cost_of_seq, cost_of_proc, cost_of_sample
 #| label: load-data
 
 # load in data
-data <- read_csv("../data/new-hiv-data.csv")
+data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE)
 
 our_data <- data %>% 
   mutate(hiv_ra = hiv_reads / read_depth)
 
-ggplot(our_data, aes(x = hiv_ra)) +
-  geom_histogram(binwidth = 0.00002, color = "black", fill = "skyblue") +
-  labs(
-    title = "Distribution of HIV Relative Abundance (hiv_ra)",
-    x = "HIV Relative Abundance (hiv_ra)",
-    y = "Count"
-  ) +
-  theme_minimal()
-
+our_data
 
 # Find the mew factor by taking the average of hiv ra over all HIV people.
-mew <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
+#mew <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
 
 mew <- our_data %>% 
   summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>% 
@@ -325,7 +309,7 @@ mew <- our_data %>%
 ```
 This study has 3 subjects, who provide us with mew of 5.59e-5, calculated via geometric mean.
 
-Using this, along with the assumption of a population of 300 million people, 100 reads as our detection threshold, a growth rate of 0.01336 which we derived from existing Nature study, initial infection population of 100. We run simulations, where we vary the pool size, and cumulative incidence.
+Using this, along with the assumption of a population of 300 million people, 100 reads as our detection threshold, a growth rate of 0.01336 which we derived from existing Nature study (source: https://www.nature.com/articles/nature19827), initial infection population of 100. We run simulations, where we vary the pool size, and cumulative incidence.
 
 
  
@@ -358,9 +342,6 @@ Using this, along with the assumption of a population of 300 million people, 100
 ```{r}
 #| label: find-seq-depth
 
-library(future)
-library(future.apply)
-
 ## Model parameters
 # CONSTANTS
 N <- 300e6  # US population
@@ -376,22 +357,21 @@ D <- 1e7   # sequencing depth to test (10 million reads)
 n_sims <- 1000  # number of simulations
 
 # Find optimal sequencing depths for different target incidences
-cat("\n\nFinding optimal sequencing depths...\n")
 target_incidences <- c(1, 5, 10)  # Different cumulative incidence targets
 pool_sizes <- c(16, 64, 128, 256, 512, 1024, 2048)  # Different cumulative incidence targets
 optimal_results <- list()
 
 
 # Parallel
-#workers <- max(1, parallel::detectCores() - 1)
-#plan(multisession, workers = workers)
-#
-#param_grid <- expand.grid(
-#  target_incidence = target_incidences,
-#  pool_size       = pool_sizes,
-#  stringsAsFactors = FALSE
-#)
-#
+workers <- max(1, parallel::detectCores() - 1)
+plan(multisession, workers = workers)
+
+param_grid <- expand.grid(
+  target_incidence = target_incidences,
+  pool_size       = pool_sizes,
+  stringsAsFactors = FALSE
+)
+
 #optimal_results <- future_apply(
 #  X   = param_grid,          # each row is one job
 #  MARGIN = 1,
@@ -434,20 +414,47 @@ optimal_results <- readRDS("../results/optimal_results.rds")
 #}
 #}
 
-optimal_summary <- param_grid %>%                       #  n rows  = length(optimal_results)
+optimal_summary <- param_grid %>%         # nrow = length(optimal_results)
   mutate(
-    optimal_depth = sapply(optimal_results, `[[`, "optimal_depth"),
-    achieved_prob = sapply(optimal_results, `[[`, "final_prob"),
+    optimal_depth = map_dbl(optimal_results, "optimal_depth"),
+    achieved_prob = map_dbl(optimal_results, "final_prob"),
+    q25_incidence = map_dbl(optimal_results,
+                            c("final_results", "summary_stats", "q25_incidence")),
+    q75_incidence = map_dbl(optimal_results,
+                            c("final_results", "summary_stats", "q75_incidence")),
     annual_reads  = optimal_depth * 52
   )
 
-cat("\n\nOptimal Sequencing Depth Summary:\n")
-print(optimal_summary)
 optimal_summary <- as_tibble(optimal_summary)
 
-optimal_summary
-optimal_summary %>%
-  arrange(target_incidence)
+
+ggplot(optimal_summary,
+       aes(x = target_incidence,
+           y = optimal_depth,
+           colour = factor(pool_size),
+           group  = pool_size)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
+  scale_colour_brewer(palette = "Accent", name = "Pool size") +
+  labs(title = "Weekly sequencing depth",
+       y = "Reads per week",
+       x = "Cumulative incidence",
+       colour = "Pool size") +
+  theme_light(base_size = 13) +
+  theme(
+    plot.title      = element_text(hjust = .5, face = "bold"),
+    plot.subtitle   = element_text(hjust = .5),
+    legend.position = "top"
+  )
+
+
+```
+
+```{r}
+#| label: cost-analysis
 
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
@@ -464,12 +471,33 @@ optimal_summary <- optimal_summary %>%
            num_samples    = pool_size
          )*52)
 
-optimal_summary %>% select(target_incidence, pool_size, optimal_depth, total_cost_per_year) %>%
-  arrange(total_cost_per_year)
+ggplot(optimal_summary,
+       aes(x = pool_size,
+           y = total_cost_per_year,
+           fill = factor(target_incidence))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
+  scale_x_log10() +
+  scale_colour_brewer(palette = "Accent", name = "Cumulative incidence") +
+  labs() +
+  theme_light(base_size = 13) +
+  theme(
+    plot.title      = element_text(hjust = .5, face = "bold"),
+    plot.subtitle   = element_text(hjust = .5),
+    legend.position = "top"
+  )
+
+#optimal_summary %>% select(target_incidence, pool_size, total_cost_per_year, q25_incidence,q75_incidence) %>%
+#  filter(pool_size == 1024)
 
 ```
 
+*Note: Need to increase upper bound of optimal depth search as we hit 1billion reads for 1% cumulative incidence, which is the upper limit.*
 
-#@TODO 
 
-Rerun, and make some plots
+# @TODO 
+
+- Write explanation
+- Make more plots
+- Make better plot
+- Confirm cost model stuff with Lenni
