@@ -22,27 +22,30 @@ format:
 
 We develop a cost modeling framework to estimate the annual expense of operating a blood-based biosurveillance system in the United States designed to detect the emergence of an HIV-like pathogen. For this analysis, we define detection as the moment when the number of sequencing reads attributable to this pathogen surpasses a predefined threshold. By referring to the pathogen as "HIV-like," we mean it exhibits similar epidemiological characteristics to HIV, including growth rate, shedding patterns, and a constant shedding rate derived from existing untargeted metagenomic sequencing data on people with HIV.
 
-Accurately estimating surveillance costs necessitates modeling potential pathogen outbreaks. Thus, we simulate outbreaks under varying cumulative incidence levels and different pooling strategies, focusing on scenarios where all samples collected each week are combined into a single large pool for sequencing. This approach allows us to determine the optimal sequencing depth required to reliably detect the pathogen, directly informing our overall cost estimates.
+Accurately estimating surveillance costs necessitates modeling potential pathogen outbreaks. To evaluate surveillance requirements, we model a standardized outbreak and then determine the sequencing depth needed to ensure detection before the epidemic reaches various cumulative incidence thresholds. different pooling strategies, focusing on scenarios where all samples collected each week are combined into a single large pool for sequencing. This approach allows us to determine the optimal sequencing depth required to reliably detect the pathogen, directly informing our overall cost estimates.
 
 ## Outbreak Modeling via Exponential Growth
 
 Viral outbreaks are commonly modeled using a simple deterministic exponential growth framework, a standard practice for initial outbreak simulations (NB: insert appropriate citation). We simulate the number of new infections in each week, $t$, using the exponential growth model $I(t) = I_1 \cdot e^{r(t-1)}$, where $r$ is the pathogen's exponential growth rate, and $I_1$ is the initial number of infections in the first week of the simulation. To ensure a realistic outbreak scenario, we set $I_1 = 100$, which provides a sufficient initial seed for the epidemic and avoids premature extinction (NB: Dan said to set this high enough such that an outbreak actually happens, probably should find a citation for this).
 
-We employ a pre-defined growth rate drawn from a previous epidemiological analysis of HIV (NB: https://www.nature.com/articles/nature19827). We also set the total susceptible population, $N$, to approximate the current US population size of approximately 300 million. By varying the cumulative incidence threshold ($X\%$), this approach allows us to estimate roughly how many weeks would be needed to reach our desired outbreak size.
+We employ a pre-defined growth rate drawn from a previous epidemiological analysis of HIV (NB: https://www.nature.com/articles/nature19827). We also set the total susceptible population, $N$, to approximate the current US population size of approximately 300 million. Given the fixed growth rate, we can calculate the number of weeks required for the cumulative number of infections to reach any given threshold ($X\%$ of the total population).
 
 Importantly, reaching the specified cumulative incidence threshold in the model does not necessarily imply real-world detection at that exact time point. Actual detection might occur with a lag, meaning the outbreak could continue unnoticed beyond this theoretical threshold. Nevertheless, this initial estimate provides a critical reference point, guiding the approximate simulation duration required for further modeling steps.
 
 ## Shedding Dynamics and Population
 
-To simplify our modeling approach, we assume that each infected individual sheds the pathogen continuously at the same constant rate over a period of 12 weeks following infection (NB: cite the study that lenni referred to that showed the 12 week major shedding). This constant shedding rate, denoted as $\mu$, is derived from existing data on similar viral pathogens. Thus, the number of individuals actively shedding in a given week $t$, denoted $S(t)$, consists of all individuals infected during the previous 12 weeks:
+To simplify our modeling approach, we assume that each infected individual sheds the pathogen continuously at the same constant rate over a period of 12 weeks following infection (NB: cite the study that lenni referred to that showed the 12 week major shedding). actual HIV shedding is variable over time, but we're modeling the acute infection period after which shedding tends to decrease for increasing again with the development of AIDS.
+This constant shedding rate, denoted as $\mu$, is derived from existing data on similar viral pathogens. Thus, the number of individuals actively shedding in a given week $t$, denoted $S(t)$, consists of all individuals infected during the previous 12 weeks:
 
 $S(t) = \sum_{k=\max(1, t-11)}^{t} I(k).$
 
-We estimate the expected relative abundance of our modeled HIV-like pathogen per infected person (the shedding rate $\mu$), using existing metagenomic sequencing data from individuals early in their HIV infection. The rationale behind focusing on sequencing data from people early in their HIV infection is because HIV's viremia is quite variable during the infection period, but is well known to shed quite a lot during the initial weeks of infections, hence, we wanted to capture this pattern (NB: improve explanation). 
+We estimate the expected relative abundance of our modeled HIV-like pathogen in blood per infected person (the shedding rate $\mu$), using existing metagenomic sequencing data from individuals early in their HIV infection. The rationale behind focusing on sequencing data from people early in their HIV infection is because HIV's viremia is quite variable during the infection period, but is well known to shed quite a lot during the initial weeks of infections, hence, we wanted to capture this pattern (NB: improve explanation). 
 
 ## Sampling and Read Generation
 
-We assume that sampling is independent across weeks, meaning each individual's chance of being sampled in one week does not affect their probability of selection in subsequent weeks.
+@TODO
+We assume that sampling is independent across weeks, meaning each individual's chance of being sampled in one week does not affect their probability of selection in subsequent weeks. (Actually it depends on whether they're donation whole blood or plasma; we can discuss this in-person; worst-case, we just put a footnote discussing this; since the number of poeple we're samplign is so low compared to the population size, i think this effect is negligible (verify with claude)
+)
 
 Each week, we randomly select a sample of size $P$, which represents our pool size, from the total population $N$. Given that $N$ is large, sampling is performed with replacement, ensuring each individual has an equal and independent probability of being selected.
 
@@ -71,7 +74,7 @@ We estimate the annual surveillance cost by decomposing weekly expenditures into
 
 $C_{\text{annual}} = [(D \times (C_{\text{seq}} + C_{\text{proc}})) + (C_{\text{samp}} \times P)] \times 52$
 
-In this model, we define the variables as follows: sequencing depth $D$ represents the number of reads required weekly to detect the pathogen reliably, $C_{\text{seq}}$ is the sequencing cost per read specific to the chosen sequencing platform, and $C_{\text{proc}}$ is the per-read cost associated with processing, including sample preparation and library preparation. Additionally, $C_{\text{samp}}$ denotes the cost of collecting and shipping a single sample, and $P$ is the total number of samples processed each week (also known, as a our pool size from earlier; NB: make sure don't double explain).
+In this model, we define the variables as follows: sequencing depth $D$ represents the number of reads required weekly to detect the pathogen reliably by the time the pathogen hits $X\%$ cumulative incidence, $C_{\text{seq}}$ is the sequencing cost per read specific to the chosen sequencing platform, and $C_{\text{proc}}$ is the per-read cost associated with processing (this is a simplification a), including sample preparation and library preparation. Additionally, $C_{\text{samp}}$ denotes the cost of collecting and shipping a single sample, and $P$ is the total number of samples processed each week (also known, as a our pool size from earlier; this assumes that a sample only has one individual in it).
 
 Our cost analysis relies on several key assumptions: sequencing depth $D$ is optimized according to detection probability thresholds; sequencing and processing costs per read remain constant and consistent across all samples; per-sample collection costs encompass all logistics and remain uniform; and weekly sampling and sequencing processes do not vary throughout the year.
 
@@ -437,17 +440,21 @@ ggplot(optimal_summary,
   geom_point(size = 2) +
   geom_line(linewidth = 1) +
   geom_point(size = 2) +
-  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
+  scale_y_log10(
+    limits = c(1e7, 1e9),
+    breaks = c(1e7, 1e8, 1e9),
+    labels = scales::math_format(10^.x)(log10(c(1e7, 1e8, 1e9)))
+  ) +
   scale_colour_brewer(palette = "Accent", name = "Pool size") +
-  labs(title = "Weekly sequencing depth",
-       y = "Reads per week",
+  labs(title = "",
+       y = "Sequencing depth per week to hit pathogen detection",
        x = "Cumulative incidence",
        colour = "Pool size") +
   theme_light(base_size = 13) +
   theme(
     plot.title      = element_text(hjust = .5, face = "bold"),
     plot.subtitle   = element_text(hjust = .5),
-    legend.position = "top"
+    legend.position = "right"
   )
 
 
@@ -472,19 +479,25 @@ optimal_summary <- optimal_summary %>%
          )*52)
 
 ggplot(optimal_summary,
-       aes(x = pool_size,
+       aes(x = target_incidence,
            y = total_cost_per_year,
-           fill = factor(target_incidence))) +
-  geom_bar(stat = "identity", position = "dodge") +
+           colour = factor(pool_size),
+           group  = pool_size)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
   scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
-  scale_x_log10() +
-  scale_colour_brewer(palette = "Accent", name = "Cumulative incidence") +
-  labs() +
+  scale_colour_brewer(palette = "Accent", name = "Pool size") +
+  labs(title = "",
+       y = "Total cost per year to hit pathogen detection",
+       x = "Cumulative incidence",
+       colour = "Pool size") +
   theme_light(base_size = 13) +
   theme(
     plot.title      = element_text(hjust = .5, face = "bold"),
     plot.subtitle   = element_text(hjust = .5),
-    legend.position = "top"
+    legend.position = "right"
   )
 
 #optimal_summary %>% select(target_incidence, pool_size, total_cost_per_year, q25_incidence,q75_incidence) %>%
