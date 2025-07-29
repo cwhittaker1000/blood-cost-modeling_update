@@ -32,7 +32,7 @@ We employ a pre-defined growth rate drawn from a previous epidemiological analys
 
 Importantly, reaching the specified cumulative incidence threshold in the model does not necessarily imply real-world detection at that exact time point. Actual detection might occur with a lag, meaning the outbreak could continue unnoticed beyond this theoretical threshold. Nevertheless, this initial estimate provides a critical reference point, guiding the approximate simulation duration required for further modeling steps.
 
-## Shedding Dynamics and Population
+## Shedding Dynamics
 
 To simplify our modeling approach, we assume each infected individual sheds the pathogen continuously at a constant rate over a 12-week period following infection (NB: cite study). Although actual HIV shedding varies considerably over time, our model focuses specifically on the acute infection phase, characterized by high and relatively consistent shedding, after which viral loads typically decline before eventually increasing again with progression to AIDS.
 
@@ -329,8 +329,6 @@ cv_squared <- our_data %>%
   pull(cv_squared)
 
 alpha <- cv_squared  # Use CV² directly as overdispersion parameter
-
-
 
 ```
 
