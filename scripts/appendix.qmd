@@ -52,8 +52,7 @@ The number of actively shedding individuals detected in our weekly sample is mod
 
 From this sampled group, we calculate the expected number of pathogen reads detected each week as, $E[R(t)] = \frac{\text{Sampled shedders}}{P} \times \mu \times D$. Here, $\mu$ denotes the shedding rate—the expected relative abundance of pathogen per infected individual—and $D$ is the sequencing depth.
 
-The actual observed pathogen reads in any given week $t$ are assumed to follow a Poisson distribution around this expected value: $R(t) \sim \text{Poisson}\left(\frac{\text{Sampled shedders}}{P} \times \mu \times D\right)$. This framework allows us to robustly model and predict weekly pathogen read detections.
-
+To accommodate the inherent variability and overdispersion typically observed in pathogen sequencing data, the actual pathogen reads detected each week $t$ are modeled using a negative binomial distribution, $R(t) \sim \text{NegativeBinomial}(r, p)$, where the parameters $r$ and $p$ are chosen such that the distribution has mean $E[R(t)]$ and a variance determined by an overdispersion parameter $\alpha$, which we estimate directly from empirical data. This modeling approach robustly captures the stochastic nature and realistic variability in pathogen detection during surveillance.
 
 ## Detection Probability via Monte Carlo Simulations
 
@@ -149,7 +148,7 @@ calc_cumulative_incidence <- function(week, I1, r, N) {
 #| label: simulate-detection-distribution
 
 # Function to simulate detection timing distribution
-simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_weeks, N, max_weeks = 1000) {
+simulate_detection_distribution <- function(r, I1, P, D, theta, mew, alpha, shedding_weeks, N, max_weeks = 1000) {
   # Run epidemic week by week until detection
   week <- 1
   total_reads <- 0
@@ -161,9 +160,9 @@ simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_we
     if (S_t > 0 && P < N) {
       # For large populations, approximate with binomial
       sampled_shedders <- rbinom(1, P, S_t / N)
-      # Generate reads from Poisson distribution
+      # Generate reads from negative binomial distribution
       expected_reads <- sampled_shedders / P * mew * D
-      weekly_reads <- rpois(1, expected_reads)
+      weekly_reads <- rnbinom(1, size = 1/alpha, mu = expected_reads)
       total_reads <- total_reads + weekly_reads
       if (total_reads >= theta) {
         # Detection occurred!
@@ -193,10 +192,10 @@ simulate_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_we
 #| label: analyze-detection-distribution
 
 # Function to analyze detection distribution across many simulations
-analyze_detection_distribution <- function(r, I1, P, D, theta, mew, shedding_weeks, N, n_sims = 1000) {
+analyze_detection_distribution <- function(r, I1, P, D, theta, mew, alpha, shedding_weeks, N, n_sims = 1000) {
   # Run many simulations
   results <- replicate(n_sims, {
-    simulate_detection_distribution(r, I1, P, D, theta, mew, shedding_weeks, N)
+    simulate_detection_distribution(r, I1, P, D, theta, mew, alpha, shedding_weeks, N)
   }, simplify = FALSE)
   # Extract detection data
   detected_sims <- results[sapply(results, function(x) x$detected)]
@@ -242,13 +241,13 @@ calc_detection_probability <- function(detection_results, threshold_incidence) {
 }
 
 # Function to find optimal sequencing depth using binary search
-find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, theta, mew, 
+find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, theta, mew, alpha,
                               shedding_weeks, N, n_sims = 500, tolerance = 1e4) {
   cat(sprintf("Finding optimal depth for %.1f%% cumulative incidence at %.0f%% detection probability\n", 
               target_incidence, target_prob * 100))
   # Binary search bounds
   low <- 1e4    # Start with very low depth
-  high <- 1e11   # Maximum reasonable depth
+  high <- 1e12   # Maximum reasonable depth
   # Track results for visualization
   tested_depths <- c()
   tested_probs <- c()
@@ -256,7 +255,7 @@ find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, t
     mid <- round((low + high) / 2)
     cat(sprintf("Testing depth %.2e... ", mid))
     # Run simulations at this depth
-    results <- analyze_detection_distribution(r, I1, P, mid, theta, mew, shedding_weeks, N, n_sims)
+    results <- analyze_detection_distribution(r, I1, P, mid, theta, mew, alpha, shedding_weeks, N, n_sims)
     p_detect <- calc_detection_probability(results, target_incidence)
     cat(sprintf("P(detect) = %.2f%%\n", p_detect * 100))
     # Store for visualization
@@ -269,7 +268,7 @@ find_optimal_depth <- function(target_incidence, target_prob = 0.95, r, I1, P, t
     }
   }
   # Run final simulation at selected depth to confirm
-  final_results <- analyze_detection_distribution(r, I1, P, high, theta, mew, shedding_weeks, N, n_sims * 2)
+  final_results <- analyze_detection_distribution(r, I1, P, high, theta, mew, alpha, shedding_weeks, N, n_sims * 2)
   final_p_detect <- calc_detection_probability(final_results, target_incidence)
   cat(sprintf("\nOptimal depth: %.2e reads/week\n", high))
   cat(sprintf("Final P(detect | %.1f%% incidence) = %.2f%%\n", target_incidence, final_p_detect * 100))
@@ -309,10 +308,33 @@ mew <- our_data %>%
   summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>% 
   pull(geo_mean)
 
+#Best Approach: Coefficient of Variation Squared
+#
+#I recommend calculating overdispersion using the coefficient of variation squared (CV²) of the relative abundances. Here's why:
+#
+#1. Scale-free consistency: Both geometric mean and CV² are scale-free measures, making them compatible
+#2. Biological interpretation: CV² represents the relative variability in viral shedding between individuals
+#3. Mathematical alignment: For negative binomial, Variance = μ + α·μ², so CV² = Var/μ² ≈ α (when μ is small)
+#4. Log-normal connection: Using geometric mean implies log-normal-like behavior; CV² naturally captures this variability
+#
+#Alternative Implementation
+
+# Calculate overdispersion using CV² of relative abundances
+cv_squared <- our_data %>%
+  summarize(
+    mean_ra = mean(hiv_ra, na.rm = TRUE),
+    sd_ra = sd(hiv_ra, na.rm = TRUE),
+    cv_squared = (sd_ra / mean_ra)^2
+  ) %>%
+  pull(cv_squared)
+
+alpha <- cv_squared  # Use CV² directly as overdispersion parameter
+
+
 
 ```
 
-From the three subjects in this study, we calculated a shedding rate ($\mu$) of $5.59 \times 10^{-5}$, determined using the geometric mean of their observed values.
+From the three subjects in this study, we calculated a shedding rate ($\mu$) of $5.59 \times 10^{-5}$ using the geometric mean of the observed values. Additionally, we estimated the overdispersion parameter ($\alpha$) to be $0.69$, reflecting the observed variability in pathogen sequencing counts.
 
 Using this shedding rate, we simulated pathogen detection scenarios under the following assumptions: a total population of 300 million individuals, a detection threshold of 100 sequencing reads, an initial infected population of 100 individuals, and a pathogen growth rate of 0.01336 derived from an existing study in *Nature* ([https://www.nature.com/articles/nature19827](https://www.nature.com/articles/nature19827)). We performed these simulations while systematically varying the pool size and cumulative incidence thresholds to assess their impact on surveillance efficiency.
  
@@ -344,7 +366,7 @@ Using this shedding rate, we simulated pathogen detection scenarios under the fo
 
 ```{r}
 #| label: find-seq-depth
-#| fig-height: 8
+#| fig-height: 10
 #| fig-width: 8
 #| fig-cap: "Figure 1: Total sequencing depth required per week to detect the pathogen with varied pool sizes and cumulative incidence."
 
@@ -353,18 +375,12 @@ Using this shedding rate, we simulated pathogen detection scenarios under the fo
 N <- 300e6  # US population
 theta <- 100  # detection threshold (reads)
 shedding_weeks <- 12
-r <- 0.0136      # weekly growth based on HIV
+r <- 0.01336      # weekly growth based on HIV
 I1 <- 100     # 100 initial infections
 
-
-# User defined parameters
-P <- 1000  # pool size
-D <- 1e7   # sequencing depth to test (10 million reads)
-n_sims <- 1000  # number of simulations
-
 # Find optimal sequencing depths for different target incidences
-target_incidences <- c(1, 5, 10)  # Different cumulative incidence targets
-pool_sizes <- c(16, 64, 128, 256, 512, 1024, 2048)  # Different cumulative incidence targets
+target_incidences <- c(0.1, 0.5, 1, 2.5, 5, 7.5, 10)  # Different cumulative incidence targets
+pool_sizes <- c(16, 32, 64, 128, 256, 512, 1024, 2048)  # Different cumulative incidence targets
 optimal_results <- list()
 
 
@@ -386,7 +402,7 @@ param_grid <- expand.grid(
 #      target_incidence = row["target_incidence"],
 #      target_prob      = 0.95,
 #      r = r, I1 = I1, P = row["pool_size"],
-#      theta = theta, mew = mew,
+#      theta = theta, mew = mew, alpha = alpha,
 #      shedding_weeks = shedding_weeks,
 #      N = N, n_sims = 500
 #    )
@@ -397,15 +413,11 @@ param_grid <- expand.grid(
 # After the future_apply() call finishes
 #results_dir <- "../results"        # adjust as needed
 #if (!dir.exists(results_dir)) dir.create(results_dir)
-#
+
 #saveRDS(optimal_results,
 #       file = file.path(results_dir, "optimal_results.rds"))
 
 optimal_results <- readRDS("../results/optimal_results.rds")
-
-
-
-
 
 #for (i in target_incidences) {
 #for (j in pool_sizes) {
@@ -414,7 +426,7 @@ optimal_results <- readRDS("../results/optimal_results.rds")
 #    target_incidence = target_incidences[i],
 #    target_prob = 0.95,
 #    r = r, I1 = I1, P = j, theta = theta, 
-#    mew = mew, shedding_weeks = shedding_weeks, 
+#    mew = mew, alpha = alpha, shedding_weeks = shedding_weeks, 
 #    N = N, n_sims = 500
 #  )
 #}
@@ -441,11 +453,8 @@ ggplot(optimal_summary,
            group  = pool_size)) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
-  scale_y_log10(
-    limits = c(1e7, 1e9),
-    breaks = c(1e7, 1e8, 1e9),
-    labels = scales::math_format(10^.x)(log10(c(1e7, 1e8, 1e9)))
-  ) +
+  scale_x_continuous(breaks = c(0.1, 0.5, 1, 2.5, 5, 7.5, 10)) +
+  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
   scale_colour_brewer(palette = "Accent", name = "Pool size") +
   labs(title = "",
        y = "Sequencing depth per week to detect HIV-like pathogen",
@@ -463,7 +472,7 @@ ggplot(optimal_summary,
 
 ```{r}
 #| label: cost-analysis
-#| fig-height: 8
+#| fig-height: 10
 #| fig-width: 8
 #| fig-cap: "Figure 2: Total cost required per year to detect the pathogen with varied pool sizes and cumulative incidence."
 
@@ -489,6 +498,7 @@ ggplot(optimal_summary,
            group  = pool_size)) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
+  scale_x_continuous(breaks = c(0.1, 0.5, 1, 2.5, 5, 7.5, 10)) +
   scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
   scale_colour_brewer(palette = "Accent", name = "Pool size") +
   labs(title = "",
@@ -507,24 +517,19 @@ ggplot(optimal_summary,
 
 ```
 
+*NB: Upper limit on simulation was 1 trillion read pairs. I don't think we will use this many CI + pool size combinations, I was just interested. I would need to spend more time looking at these results, but I've listed some observations below.*
+
 Observations about figure 1:
 
-* As we increase cumulative incidence, weekly sequencing depth converges with a big enough pool size.
+* Unless we have a large pool size (>= 512), detecting the pathogen below 1% CI seems not feasible
 * Letting the pathogen hit a higher cumulative incidence means you can sequence less
 * Once you get larger than 512 samples, the difference in seq depth seems to be quite minimal
-* Maybe interesting to see what a pool size of 32 looks like, and what smaller cumulative incidence looks like (e.g. 0.01%), and cumulative incidence between our current numbers 
 
-
-Observations about figure 2:
+Observations about figure 2 (NB: most likely will update this figure to only have sequencing + library prep cost, which we can make a slightly more complicated model for):
 
 * The cost per sample dominates the total cost at higher pool sizes (>= 512)
 * It seems like there isn't much money saved for waiting for a pathogen to hit higher cumultaive incidence, past 64 samples in a pool
 * The most something like this would cost seems to be around 10 million dollars on the high end and ~350-500k on the low end
 
-
-*NB: Need to increase upper bound of optimal depth search as we hit 1billion reads for 1% cumulative incidence, which is the upper limit.*
-
-
 # @TODO 
-
 - Get code checked.
