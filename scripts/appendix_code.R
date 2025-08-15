@@ -372,17 +372,18 @@ new_optimal_results <- future_apply(
 
 # After the future_apply() call finishes
 results_dir <- "../results" # adjust as needed
+
 if (!dir.exists(results_dir)) {
   dir.create(results_dir)
 }
 saveRDS(
   new_optimal_results,
-  file = file.path(results_dir, "final_optimal_results.rds")
+  file = file.path(results_dir, "lenni_final_optimal_results.rds")
 )
 
 rm(new_optimal_results)
 
-optimal_results <- readRDS("../results/final_optimal_results.rds")
+optimal_results <- readRDS("../results/lenni_final_optimal_results.rds")
 
 optimal_summary <- param_grid %>%
   mutate(
@@ -401,13 +402,13 @@ optimal_summary <- param_grid %>%
 
 optimal_summary <- as_tibble(optimal_summary)
 
-#@TODO: Remove the points that don't converge
 normal_data <- optimal_summary %>%
-  filter(mew == estimate_mew, read_threshold == 100) %>%
+  filter(mew == 1e-6, read_threshold == 100) %>%
   mutate(
     # Flag values that hit the ceiling
     hit_ceiling = optimal_depth >= 1e12
-  )
+  ) %>%
+  filter(!hit_ceiling)
 
 depth_plot <- ggplot(
   normal_data,
@@ -418,21 +419,12 @@ depth_plot <- ggplot(
     group = pool_size
   )
 ) +
+  geom_point(size = 3) +
   geom_line(linewidth = 1, linetype = "solid") +
-  geom_point(
-    aes(shape = hit_ceiling),
-    size = 3,
-    position = position_dodge(width = 0.05)
-  ) +
-  scale_x_log10(breaks = c(0.001, 0.005, 0.01, 0.05, 0.1)) +
+  scale_x_log10(breaks = c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)) +
   scale_y_log10(
     labels = trans_format("log10", math_format(10^.x)),
     limits = c(NA, 1e12)
-  ) +
-  scale_shape_manual(
-    values = c("FALSE" = 16, "TRUE" = 17),
-    labels = c("Solution found", "No solution (>10¹²)"),
-    name = "Convergence"
   ) +
   scale_colour_brewer(
     palette = "Accent",
@@ -452,120 +444,6 @@ depth_plot <- ggplot(
 depth_plot
 
 ggsave("../output/depth_plot.png", depth_plot, width = 8, height = 6)
-
-# Create uncertainty visualization with ribbons (approach 1); HB: looks pretty bad
-mew_range_data <- optimal_summary %>%
-  filter(read_threshold == 100) %>%
-  group_by(target_incidence, pool_size) %>%
-  summarize(
-    depth_central = optimal_depth[mew == estimate_mew],
-    depth_low = optimal_depth[abs(mew - estimate_mew * 0.1) < 1e-10], # Use actual calculated value
-    depth_high = optimal_depth[abs(mew - estimate_mew * 10) < 1e-10], # Use actual calculated value
-    hit_ceiling_central = depth_central >= 1e12,
-    .groups = "drop"
-  ) %>%
-  # Only keep scenarios where central estimate converged
-  filter(depth_central < 1e12)
-
-depth_ribbon_plot <- ggplot(
-  mew_range_data,
-  aes(
-    x = target_incidence,
-    y = depth_central,
-    colour = factor(pool_size),
-    fill = factor(pool_size),
-    group = pool_size
-  )
-) +
-  geom_ribbon(
-    aes(ymin = depth_low, ymax = depth_high),
-    alpha = 0.2,
-    linetype = 0
-  ) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 3) +
-  scale_x_log10(breaks = c(0.001, 0.005, 0.01, 0.05, 0.1)) +
-  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
-  scale_colour_brewer(
-    palette = "Accent",
-    name = "Number of individuals\nin weekly sequencing\nbatch"
-  ) +
-  scale_fill_brewer(
-    palette = "Accent",
-    name = "Number of individuals\nin weekly sequencing\nbatch"
-  ) +
-  labs(
-    title = "Sequencing depth with shedding rate uncertainty (10-fold range)",
-    y = "Sequencing depth per week",
-    x = "Cumulative incidence (%)"
-  ) +
-  theme_bw(base_size = 15) +
-  theme(
-    plot.title = element_text(hjust = .5, face = "bold"),
-    plot.subtitle = element_text(hjust = .5),
-    legend.position = "right"
-  )
-depth_ribbon_plot
-
-# Create uncertainty visualization with error bars (approach 3)
-mew_errorbar_data <- optimal_summary %>%
-  filter(read_threshold == 100) %>%
-  group_by(target_incidence, pool_size) %>%
-  summarize(
-    depth_central = optimal_depth[mew == estimate_mew],
-    depth_min = min(optimal_depth[mew != estimate_mew]),
-    depth_max = max(optimal_depth[mew != estimate_mew]),
-    hit_ceiling = depth_central >= 1e12,
-    .groups = "drop"
-  )
-
-depth_errorbar_plot <- ggplot(
-  mew_errorbar_data,
-  aes(
-    x = target_incidence,
-    y = depth_central,
-    colour = factor(pool_size),
-    group = pool_size
-  )
-) +
-  geom_line(linewidth = 1) +
-  geom_errorbar(
-    aes(ymin = depth_min, ymax = depth_max),
-    width = 0.02,
-    alpha = 0.6
-  ) +
-  geom_point(aes(shape = hit_ceiling), size = 3) +
-  scale_x_log10(breaks = c(0.001, 0.005, 0.01, 0.05, 0.1)) +
-  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
-  scale_shape_manual(
-    values = c("FALSE" = 16, "TRUE" = 17),
-    labels = c("Solution found", "No solution (>10¹²)"),
-    name = "Convergence"
-  ) +
-  scale_colour_brewer(
-    palette = "Accent",
-    name = "Number of individuals\nin weekly sequencing\nbatch"
-  ) +
-  labs(
-    title = "Sequencing depth with shedding rate uncertainty (error bars)",
-    y = "Sequencing depth per week",
-    x = "Cumulative incidence (%)"
-  ) +
-  theme_bw(base_size = 15) +
-  theme(
-    plot.title = element_text(hjust = .5, face = "bold"),
-    plot.subtitle = element_text(hjust = .5),
-    legend.position = "right"
-  )
-
-depth_errorbar_plot
-
-#ggsave("../output/depth_ribbon_plot.png", depth_ribbon_plot, width = 8, height = 6)
-#ggsave("../output/depth_errorbar_plot.png", depth_errorbar_plot, width = 8, height = 6)
-
-#| fig-height: 10
-#| fig-width: 8
-#| fig-cap: "Figure 2: Total cost required per year to detect the pathogen with varied pool sizes and cumulative incidence."
 
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
@@ -599,7 +477,10 @@ cost_plot <- ggplot(
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
   scale_x_log10(breaks = c(0.001, 0.005, 0.01, 0.05, 0.1)) +
-  scale_y_log10(labels = trans_format("log10", math_format(10^.x))) +
+  scale_y_log10(
+    breaks = c(10000000, 100000000),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
   scale_colour_brewer(
     palette = "Accent",
     name = "Number of individuals \nin weekly sequencing\nbatch"
@@ -627,7 +508,8 @@ normal_all_data <- optimal_summary %>%
   mutate(
     # Flag values that hit the ceiling
     hit_ceiling = optimal_depth >= 1e12
-  )
+  ) %>%
+  filter(!hit_ceiling)
 
 facet_depth_plot <- ggplot(
   normal_all_data,
@@ -640,19 +522,12 @@ facet_depth_plot <- ggplot(
 ) +
   geom_line(linewidth = 1, linetype = "solid") +
   geom_point(
-    aes(shape = hit_ceiling),
     size = 3,
-    position = position_dodge(width = 0.05)
   ) +
   scale_x_log10(breaks = c(0.001, 0.005, 0.01, 0.05, 0.1)) +
   scale_y_log10(
     labels = trans_format("log10", math_format(10^.x)),
     limits = c(NA, 1e12)
-  ) +
-  scale_shape_manual(
-    values = c("FALSE" = 16, "TRUE" = 17),
-    labels = c("Solution found", "No solution (>10¹²)"),
-    name = "Convergence"
   ) +
   scale_colour_brewer(
     palette = "Accent",
@@ -664,7 +539,7 @@ facet_depth_plot <- ggplot(
     x = "Cumulative incidence (%)"
   ) +
   theme_bw(base_size = 15) +
-  facet_grid(mew ~ .) +
+  facet_grid(. ~ mew) +
   theme(
     plot.title = element_text(hjust = .5, face = "bold"),
     plot.subtitle = element_text(hjust = .5),
@@ -675,8 +550,8 @@ facet_depth_plot
 ggsave(
   "../output/facet_mew_depth_plot.png",
   facet_depth_plot,
-  width = 8,
-  height = 15
+  width = 25,
+  height = 8
 )
 
 
@@ -719,7 +594,7 @@ facet_cost_plot <- ggplot(
     name = "Number of individuals \nin weekly sequencing\nbatch"
   ) +
   #  facet_wrap(~ paste0("Sample cost: $", sample_cost), scales = "free_y") +
-  facet_grid(mew ~ sample_cost) +
+  facet_grid(sample_cost ~ mew) +
   labs(
     title = "Annual cost with varying sample collection costs",
     y = "Total cost per year to detect HIV-like pathogen ($)",
@@ -736,6 +611,6 @@ facet_cost_plot
 ggsave(
   "../output/facet_cost_plot.png",
   facet_cost_plot,
-  width = 15,
+  width = 25,
   height = 15
 )
