@@ -9,6 +9,7 @@ library(dplyr)
 ############################
 # Start here if from scratch
 ############################
+
 # Function to solve for T given r, I1, and X
 solve_time_period <- function(r, I1, X_pct, N) {
   target_total <- (X_pct / 100) * N
@@ -283,25 +284,11 @@ our_data <- data %>%
 
 our_data
 
-# Find the mew factor by taking the average of hiv ra over all HIV people.
-#mew <- our_data %>% summarize(mean = mean(hiv_ra)) %>% pull(mean)
-
 estimate_mew <- our_data %>%
   summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>%
   pull(geo_mean)
 
-#Best Approach: Coefficient of Variation Squared
-#
-#I recommend calculating overdispersion using the coefficient of variation squared (CV²) of the relative abundances. Here's why:
-#
-#1. Scale-free consistency: Both geometric mean and CV² are scale-free measures, making them compatible
-#2. Biological interpretation: CV² represents the relative variability in viral shedding between individuals
-#3. Mathematical alignment: For negative binomial, Variance = μ + α·μ², so CV² = Var/μ² ≈ α (when μ is small)
-#4. Log-normal connection: Using geometric mean implies log-normal-like behavior; CV² naturally captures this variability
-#
-#Alternative Implementation
-
-# Calculate overdispersion using CV² of relative abundances
+# Calculate overdispersion using Coefficient of Variation Squared of relative abundances
 cv_squared <- our_data %>%
   summarize(
     mean_ra = mean(hiv_ra, na.rm = TRUE),
@@ -310,19 +297,20 @@ cv_squared <- our_data %>%
   ) %>%
   pull(cv_squared)
 
-alpha <- cv_squared # Use CV² directly as overdispersion parameter
 
 ## Model parameters
+
 # CONSTANTS
 N <- 3e8 # US population
 #theta <- 100  # detection threshold (reads)
 shedding_weeks <- 12
 r <- 0.0155 # weekly growth based on HIV
 I1 <- 100 # 100 initial infections
+alpha <- cv_squared # Use CV² directly as overdispersion parameter
 
 # Find optimal sequencing depths for different target incidences
 target_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1) # Different cumulative incidence targets
-pool_sizes <- c(1200, 6000, 12000, 60000, 120000) # Different cumulative incidence targets @TODO: Update
+pool_sizes <- c(1200, 6000, 12000, 60000, 120000) # Different cumulative incidence targets
 
 #mews <- c(
 #  estimate_mew * 1e-2,
