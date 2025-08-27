@@ -46,7 +46,7 @@ r <- 0.0155 # weekly growth based on HIV
 I1 <- 100 # 100 initial infections
 
 # VARYING PARAMETERS
-target_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1) # Different cumulative incidence targets
+target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1) # Different cumulative incidence targets
 pool_sizes <- c(1200, 6000, 12000, 60000, 120000) # Different cumulative incidence targets
 mews <- 10^seq(-2, -8, by = -1)
 read_thresholds <- c(100, 1000, 10000)
@@ -55,7 +55,7 @@ read_thresholds <- c(100, 1000, 10000)
 workers <- max(1, parallel::detectCores() - 1)
 plan(multisession, workers = workers)
 param_grid <- expand.grid(
-  target_incidence = target_incidences,
+  target_cumulative_incidence = target_cumulative_incidences,
   pool_size = pool_sizes,
   mew = mews,
   read_threshold = read_thresholds,
@@ -70,8 +70,8 @@ param_grid <- expand.grid(
 #  X = param_grid, # each row is one job
 #  MARGIN = 1,
 #  FUN = function(row) {
-#    find_optimal_depth(
-#      target_incidence = row["target_incidence"],
+#    find_optimal_sequencing_depth_with_binary_search(
+#      target_cumulative_incidence = row["target_cumulative_incidence"],
 #      target_prob = 0.95,
 #      r = r,
 #      I1 = I1,
@@ -134,7 +134,7 @@ normal_data <- optimal_summary %>%
 depth_plot <- ggplot(
   normal_data,
   aes(
-    x = target_incidence,
+    x = target_cumulative_incidence,
     y = optimal_depth,
     colour = factor(pool_size),
     group = pool_size
@@ -168,7 +168,7 @@ ggsave("../output/depth_plot.png", depth_plot, width = 8, height = 6)
 
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
-proc_c <- 2500 / 1e9
+proc_c <- 2500 #TODO: Update to new value
 sample_c <- 15
 
 # 1. add a new column with the cost for each depth
@@ -176,20 +176,19 @@ sample_c <- 15
 normal_data_with_cost <- normal_data %>%
   filter(!hit_ceiling) %>% # Exclude points that didn't converge
   mutate(
-    total_cost_per_year = find_total_cost(
+    total_cost_per_year = calculate_total_cost_per_year(
       seq_depth = optimal_depth,
       cost_of_seq = seq_c,
       cost_of_proc = proc_c,
       cost_of_sample = sample_c,
       num_samples = pool_size
-    ) *
-      52
+    )
   )
 
 cost_plot <- ggplot(
   normal_data_with_cost,
   aes(
-    x = target_incidence,
+    x = target_cumulative_incidence,
     y = total_cost_per_year,
     colour = factor(pool_size),
     group = pool_size
@@ -221,7 +220,7 @@ cost_plot
 
 ggsave("../output/cost_plot.png", cost_plot, width = 8, height = 6)
 
-#optimal_summary %>% select(target_incidence, pool_size, total_cost_per_year, q25_incidence,q75_incidence) %>%
+#optimal_summary %>% select(target_cumulative_incidence, pool_size, total_cost_per_year, q25_incidence,q75_incidence) %>%
 #  filter(pool_size == 1024)
 
 normal_all_data <- optimal_summary %>%
@@ -235,7 +234,7 @@ normal_all_data <- optimal_summary %>%
 facet_depth_plot <- ggplot(
   normal_all_data,
   aes(
-    x = target_incidence,
+    x = target_cumulative_incidence,
     y = optimal_depth,
     colour = factor(pool_size),
     group = pool_size
@@ -300,7 +299,7 @@ normal_data_with_varied_costs <- normal_all_data %>%
 facet_cost_plot <- ggplot(
   normal_data_with_varied_costs,
   aes(
-    x = target_incidence,
+    x = target_cumulative_incidence,
     y = total_cost_per_year,
     colour = factor(pool_size),
     group = pool_size

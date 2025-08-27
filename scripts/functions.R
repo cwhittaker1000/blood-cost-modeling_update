@@ -4,7 +4,7 @@ library(furrr)
 library(dplyr)
 
 # =============================================================================
-# HELPER FUNCTIONS
+# SINGLE SIMULATION FUNCTIONS
 # =============================================================================
 
 solve_time_period <- function(r, I1, X_pct, N) {
@@ -14,7 +14,6 @@ solve_time_period <- function(r, I1, X_pct, N) {
     return(target_total / I1)
   } else {
     # Exponential growth case
-    # T = (1/r) * ln(1 + (X*N*(e^r - 1))/(100*I1))
     exp_r <- exp(r)
     ratio <- (X_pct * N * (exp_r - 1)) / (100 * I1)
     T <- (1 / r) * log(1 + ratio)
@@ -22,12 +21,12 @@ solve_time_period <- function(r, I1, X_pct, N) {
   }
 }
 
-# Function to calculate infections at time t
+# Calculate the number of infected people at time t
 calc_infections <- function(t, I1, r) {
   I1 * exp(r * (t - 1))
 }
 
-# Function to calculate shedding population at time t
+# Calculate how many people are shedding viral reads at any time t
 calc_shedding <- function(t, I1, r, shedding_weeks) {
   start_week <- max(1, t - shedding_weeks + 1)
   end_week <- t
@@ -49,7 +48,7 @@ calc_cumulative_incidence <- function(week, I1, r, N) {
 }
 
 # Function to simulate detection timing distribution
-simulate_detection_distribution <- function(
+run_single_simulation_of_outbreak <- function(
   r,
   I1,
   P,
@@ -96,8 +95,12 @@ simulate_detection_distribution <- function(
   ))
 }
 
+# =============================================================================
+# ANALYSIS FUNCTIONS
+# =============================================================================
+
 # Function to analyze detection distribution across many simulations
-analyze_detection_distribution <- function(
+run_simulations_at_given_sequencing_depth <- function(
   r,
   I1,
   P,
@@ -113,7 +116,7 @@ analyze_detection_distribution <- function(
   results <- replicate(
     n_sims,
     {
-      simulate_detection_distribution(
+      run_single_simulation_of_outbreak(
         r,
         I1,
         P,
@@ -155,9 +158,12 @@ analyze_detection_distribution <- function(
 
 
 # Function to calculate detection probability from saved results
-calc_detection_probability <- function(detection_results, threshold_incidence) {
+calc_detection_probability_from_all_simulations <- function(
+  detection_results,
+  threshold_incidence
+) {
   # Calculate P(detect | X% incidence) from saved results
-  # detection_results: output from analyze_detection_distribution()
+  # detection_results: output from run_simulations_at_given_sequencing_depth()
   # threshold_incidence: X% incidence threshold
   if (detection_results$detection_rate == 0) {
     return(0)
@@ -170,12 +176,15 @@ calc_detection_probability <- function(detection_results, threshold_incidence) {
 }
 
 # =============================================================================
-# MAIN FUNCTIONS FOR RUNNING SIMULATIONS
+# MAIN FUNCTIONS
 # =============================================================================
 
-# Function to find optimal sequencing depth using binary search
-find_optimal_depth <- function(
-  target_incidence,
+# Using binary search, select a sequencing depth, then run simulations
+# check if the target cumulative incidence is reached, if so
+# adjust sequencing depth. Continue until bounds for
+# binary search are below tolerance threshold.
+find_optimal_sequencing_depth_with_binary_search <- function(
+  target_cumulative_incidence,
   target_prob = 0.95,
   r,
   I1,
@@ -190,7 +199,7 @@ find_optimal_depth <- function(
 ) {
   cat(sprintf(
     "Finding optimal depth for %.1f%% cumulative incidence at %.0f%% detection probability\n",
-    target_incidence,
+    target_cumulative_incidence,
     target_prob * 100
   ))
   # Binary search bounds
@@ -203,7 +212,7 @@ find_optimal_depth <- function(
     mid <- round((low + high) / 2)
     cat(sprintf("Testing depth %.2e... ", mid))
     # Run simulations at this depth
-    results <- analyze_detection_distribution(
+    results <- run_simulations_at_given_sequencing_depth(
       r,
       I1,
       P,
@@ -215,7 +224,10 @@ find_optimal_depth <- function(
       N,
       n_sims
     )
-    p_detect <- calc_detection_probability(results, target_incidence)
+    p_detect <- calc_detection_probability_from_all_simulations(
+      results,
+      target_cumulative_incidence
+    )
     cat(sprintf("P(detect) = %.2f%%\n", p_detect * 100))
     # Store for visualization
     tested_depths <- c(tested_depths, mid)
@@ -227,7 +239,7 @@ find_optimal_depth <- function(
     }
   }
   # Run final simulation at selected depth to confirm
-  final_results <- analyze_detection_distribution(
+  final_results <- run_simulations_at_given_sequencing_depth(
     r,
     I1,
     P,
@@ -239,11 +251,14 @@ find_optimal_depth <- function(
     N,
     n_sims * 2
   )
-  final_p_detect <- calc_detection_probability(final_results, target_incidence)
+  final_p_detect <- calc_detection_probability_from_all_simulations(
+    final_results,
+    target_cumulative_incidence
+  )
   cat(sprintf("\nOptimal depth: %.2e reads/week\n", high))
   cat(sprintf(
     "Final P(detect | %.1f%% incidence) = %.2f%%\n",
-    target_incidence,
+    target_cumulative_incidence,
     final_p_detect * 100
   ))
   return(list(
@@ -255,7 +270,7 @@ find_optimal_depth <- function(
   ))
 }
 
-find_total_cost <- function(
+calc_total_cost_per_year <- function(
   seq_depth,
   cost_of_seq,
   cost_of_proc,
@@ -263,6 +278,9 @@ find_total_cost <- function(
   num_samples
 ) {
   return(
-    seq_depth * (cost_of_seq + cost_of_proc) + cost_of_sample * num_samples
+    ((seq_depth * cost_of_seq) +
+      cost_of_proc +
+      (cost_of_sample * num_samples)) *
+      52
   )
 }
