@@ -2,32 +2,19 @@
 library(tidyverse)
 library(furrr)
 library(dplyr)
+library(docstring)
 
 # =============================================================================
 # SINGLE SIMULATION FUNCTIONS
 # =============================================================================
 
-solve_time_period <- function(r, I1, X_pct, N) {
-  target_total <- (X_pct / 100) * N
-  if (r == 0) {
-    # Constant infections case
-    return(target_total / I1)
-  } else {
-    # Exponential growth case
-    exp_r <- exp(r)
-    ratio <- (X_pct * N * (exp_r - 1)) / (100 * I1)
-    T <- (1 / r) * log(1 + ratio)
-    return(T)
-  }
-}
-
-# Calculate the number of infected people at time t
 calc_infections <- function(t, I1, r) {
+  #' Calculate the number of infected people at time t
   I1 * exp(r * (t - 1))
 }
 
-# Calculate how many people are shedding viral reads at any time t
 calc_shedding <- function(t, I1, r, shedding_weeks) {
+  #' Calculate how many people are shedding viral reads at any time t
   start_week <- max(1, t - shedding_weeks + 1)
   end_week <- t
   weeks <- start_week:end_week
@@ -35,8 +22,9 @@ calc_shedding <- function(t, I1, r, shedding_weeks) {
   sum(infections)
 }
 
-# Function to calculate cumulative incidence as percentage of population
 calc_cumulative_incidence <- function(week, I1, r, N) {
+  #' Function to calculate cumulative incidence as percentage of population
+
   # Calculate total infections from week 1 to target week
   if (r == 0) {
     total_infections <- I1 * week
@@ -47,7 +35,6 @@ calc_cumulative_incidence <- function(week, I1, r, N) {
   return(100 * total_infections / N)
 }
 
-# Function to simulate detection timing distribution
 run_single_simulation_of_outbreak <- function(
   r,
   I1,
@@ -60,10 +47,12 @@ run_single_simulation_of_outbreak <- function(
   N,
   max_weeks = 1000
 ) {
+  #' Function to simulate detection timing distribution
+
   # Run epidemic week by week until detection
   week <- 1
-  total_reads <- 0
-  while (week <= max_weeks && total_reads < theta) {
+  total_pathogen_reads <- 0
+  while (week <= max_weeks && total_pathogen_reads < theta) {
     # Calculate shedding population for current week
     S_t <- calc_shedding(week, I1, r, shedding_weeks)
     S_t <- round(S_t)
@@ -72,15 +61,15 @@ run_single_simulation_of_outbreak <- function(
       sampled_shedders <- rbinom(1, P, S_t / N)
       expected_reads <- sampled_shedders / P * mew * D
       weekly_reads <- rnbinom(1, size = 1 / alpha, mu = expected_reads)
-      total_reads <- total_reads + weekly_reads
+      total_pathogen_reads <- total_pathogen_reads + weekly_reads
       # Detection occurred
-      if (total_reads >= theta) {
+      if (total_pathogen_reads >= theta) {
         cumulative_incidence <- calc_cumulative_incidence(week, I1, r, N)
         return(list(
           detected = TRUE,
           detection_week = week,
           cumulative_incidence = cumulative_incidence,
-          total_reads = total_reads
+          total_pathogen_reads = total_pathogen_reads
         ))
       }
     }
@@ -91,7 +80,7 @@ run_single_simulation_of_outbreak <- function(
     detected = FALSE,
     detection_week = NA,
     cumulative_incidence = NA,
-    total_reads = total_reads
+    total_pathogen_reads = total_pathogen_reads
   ))
 }
 
@@ -99,7 +88,6 @@ run_single_simulation_of_outbreak <- function(
 # ANALYSIS FUNCTIONS
 # =============================================================================
 
-# Function to analyze detection distribution across many simulations
 run_simulations_at_given_sequencing_depth <- function(
   r,
   I1,
@@ -112,6 +100,8 @@ run_simulations_at_given_sequencing_depth <- function(
   N,
   n_sims = 1000
 ) {
+  #' Function to analyze detection distribution across many simulations
+
   # Run many simulations
   results <- replicate(
     n_sims,
@@ -157,11 +147,12 @@ run_simulations_at_given_sequencing_depth <- function(
 }
 
 
-# Function to calculate detection probability from saved results
 calc_detection_probability_from_all_simulations <- function(
   detection_results,
   threshold_incidence
 ) {
+  #' Function to calculate detection probability from saved results
+
   # Calculate P(detect | X% incidence) from saved results
   # detection_results: output from run_simulations_at_given_sequencing_depth()
   # threshold_incidence: X% incidence threshold
@@ -179,10 +170,6 @@ calc_detection_probability_from_all_simulations <- function(
 # MAIN FUNCTIONS
 # =============================================================================
 
-# Using binary search, select a sequencing depth, then run simulations
-# check if the target cumulative incidence is reached, if so
-# adjust sequencing depth. Continue until bounds for
-# binary search are below tolerance threshold.
 find_optimal_sequencing_depth_with_binary_search <- function(
   target_cumulative_incidence,
   target_prob = 0.95,
@@ -202,6 +189,11 @@ find_optimal_sequencing_depth_with_binary_search <- function(
     target_cumulative_incidence,
     target_prob * 100
   ))
+  #' Using binary search, select a sequencing depth, then run simulations
+  #' check if the target cumulative incidence is reached, if so
+  #' adjust sequencing depth. Continue until bounds for
+  #' binary search are below tolerance threshold.
+
   # Binary search bounds
   low <- 1e4 # Start with very low depth
   high <- 1e12 # Maximum reasonable depth
@@ -277,6 +269,8 @@ calc_total_cost_per_year <- function(
   cost_of_sample,
   num_samples
 ) {
+  #' Calculate the total cost per year of detecting this HIV-like pathogen
+
   return(
     ((seq_depth * cost_of_seq) +
       cost_of_proc +

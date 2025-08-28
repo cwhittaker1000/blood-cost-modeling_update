@@ -13,16 +13,18 @@ library(dplyr)
 # LOAD IN DATA AND ESTIMATE MEW/ALPHA
 # =============================================================================
 
-# load in data
+# Load in data
 data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE)
 
 our_data <- data %>%
   mutate(hiv_ra = hiv_reads / read_depth)
 
+# Use geometric mean to estimate mew
 estimate_mew <- our_data %>%
   summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>%
   pull(geo_mean)
 
+# TODO: Double check that I can use geometric mean for the mean esitmate, but arithmetic mean for alpha
 # Calculate overdispersion using Coefficient of Variation Squared of relative abundances
 cv_squared <- our_data %>%
   summarize(
@@ -31,32 +33,31 @@ cv_squared <- our_data %>%
     cv_squared = (sd_ra / mean_ra)^2
   ) %>%
   pull(cv_squared)
-alpha <- cv_squared # Use CV² directly as overdispersion parameter
+# Use CV² directly as overdispersion parameter
+alpha <- cv_squared
 
 # =============================================================================
-# DEFINE PARAMETERS FOR SIMULATIONS
+# DEFINE OTHER PARAMETERS FOR SIMULATIONS
 # =============================================================================
 
-optimal_results <- list()
+# Constants for simulations
+N <- 3e8 # Approximate US population
+shedding_weeks <- 12 # The number of weeks an infected person sheds
+r <- 0.0155 # weekly growth rate based on HIV
+I <- 100 # Number of initial infections
 
-# CONSTANTS
-N <- 3e8 # US population
-shedding_weeks <- 12 # 12 weeks per shedding cycle
-r <- 0.0155 # weekly growth based on HIV
-I1 <- 100 # 100 initial infections
-
-# VARYING PARAMETERS
-target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1) # Different cumulative incidence targets
-pool_sizes <- c(1200, 6000, 12000, 60000, 120000) # Different cumulative incidence targets
+# Varying parameters for simulations
+target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
+batch_sizes <- c(1200, 6000, 12000, 60000, 120000)
 mews <- 10^seq(-2, -8, by = -1)
 read_thresholds <- c(100, 1000, 10000)
 
-# Parallel setup
+# Setup for running simulations using multiple cores
 workers <- max(1, parallel::detectCores() - 1)
 plan(multisession, workers = workers)
 param_grid <- expand.grid(
   target_cumulative_incidence = target_cumulative_incidences,
-  pool_size = pool_sizes,
+  batch_size = batch_sizes,
   mew = mews,
   read_threshold = read_thresholds,
   stringsAsFactors = FALSE
@@ -66,7 +67,7 @@ param_grid <- expand.grid(
 # RUN EXPENSIVE SIMULATIONS (uncomment to run)
 # =============================================================================
 
-#new_optimal_results <- future_apply(
+#optimal_sequencing_depths_across_param_sweep <- future_apply(
 #  X = param_grid, # each row is one job
 #  MARGIN = 1,
 #  FUN = function(row) {
@@ -75,7 +76,7 @@ param_grid <- expand.grid(
 #      target_prob = 0.95,
 #      r = r,
 #      I1 = I1,
-#      P = row["pool_size"],
+#      P = row["batch_size"],
 #      theta = row["read_threshold"],
 #      mew = row["mew"],
 #      alpha = alpha,
@@ -92,21 +93,23 @@ param_grid <- expand.grid(
 #  dir.create(results_dir)
 #}
 #saveRDS(
-#  new_optimal_results,
+#  optimal_sequencing_depths_across_param_sweep,
 #  file = file.path(results_dir, "lenni_final_optimal_results.rds")
 #)
 #
-#rm(new_optimal_results)
+#rm(optimal_sequencing_depths_across_param_sweep)
 
 # =============================================================================
 # LOAD IN RESULTS FROM SIMULATIONS
 # =============================================================================
 
-optimal_results <- readRDS("../results/lenni_final_optimal_results.rds")
-optimal_summary <- param_grid %>%
+# TODO: Change output file name
+opt_seq_depth_results <- readRDS("../results/lenni_final_optimal_results.rds")
+# Extract results from each parameter sweep
+opt_seq_depth_summary <- param_grid %>%
   mutate(
-    optimal_depth = map_dbl(optimal_results, "optimal_depth"),
-    achieved_prob = map_dbl(optimal_results, "final_prob"),
+    optimal_depth = map_dbl(opt_seq_depth_results, "optimal_depth"),
+    achieved_prob = map_dbl(opt_seq_depth_results, "final_prob"),
     q25_incidence = map_dbl(
       optimal_results,
       c("final_results", "summary_stats", "q25_incidence")
@@ -117,27 +120,29 @@ optimal_summary <- param_grid %>%
     ),
     annual_reads = optimal_depth * 52
   )
-optimal_summary <- as_tibble(optimal_summary)
+# Turn to a tibble for easier manipulation
+opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
 
 # =============================================================================
 # PLOTS
 # =============================================================================
 
-normal_data <- optimal_summary %>%
+# Extract data for a single mew closest to our estimated mew, and remove any
+# parameter combinations that did not converge (hit our ceiling)
+select_mew_read_threshold_data <- opt_seq_depth_summary %>%
   filter(mew == 1e-6, read_threshold == 100) %>%
   mutate(
     # Flag values that hit the ceiling
     hit_ceiling = optimal_depth >= 1e12
   ) %>%
   filter(!hit_ceiling)
-
 depth_plot <- ggplot(
-  normal_data,
+  select_mew_read_threshold_data,
   aes(
     x = target_cumulative_incidence,
     y = optimal_depth,
-    colour = factor(pool_size),
-    group = pool_size
+    colour = factor(batch_size),
+    group = batch_size
   )
 ) +
   geom_point(size = 3) +
@@ -166,14 +171,14 @@ depth_plot
 
 ggsave("../output/depth_plot.png", depth_plot, width = 8, height = 6)
 
+
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
 proc_c <- 2500 #TODO: Update to new value
 sample_c <- 15
 
-# 1. add a new column with the cost for each depth
-# Filter out non-converged results for cost plot
-normal_data_with_cost <- normal_data %>%
+# Add the cost estimate column
+select_mew_read_threshold_data_with_cost <- select_mew_read_threshold_data %>%
   filter(!hit_ceiling) %>% # Exclude points that didn't converge
   mutate(
     total_cost_per_year = calculate_total_cost_per_year(
@@ -181,17 +186,16 @@ normal_data_with_cost <- normal_data %>%
       cost_of_seq = seq_c,
       cost_of_proc = proc_c,
       cost_of_sample = sample_c,
-      num_samples = pool_size
+      num_samples = batch_size
     )
   )
-
 cost_plot <- ggplot(
-  normal_data_with_cost,
+  select_mew_read_threshold_data_with_cost,
   aes(
     x = target_cumulative_incidence,
     y = total_cost_per_year,
-    colour = factor(pool_size),
-    group = pool_size
+    colour = factor(batch_size),
+    group = batch_size
   )
 ) +
   geom_line(linewidth = 1) +
@@ -220,10 +224,9 @@ cost_plot
 
 ggsave("../output/cost_plot.png", cost_plot, width = 8, height = 6)
 
-#optimal_summary %>% select(target_cumulative_incidence, pool_size, total_cost_per_year, q25_incidence,q75_incidence) %>%
-#  filter(pool_size == 1024)
-
-normal_all_data <- optimal_summary %>%
+# Only filter by read threshold so that we can show a plot
+# comparing different mews
+select_read_threshold_data <- opt_seq_depth_summary %>%
   filter(read_threshold == 100) %>%
   mutate(
     # Flag values that hit the ceiling
@@ -232,12 +235,12 @@ normal_all_data <- optimal_summary %>%
   filter(!hit_ceiling)
 
 facet_depth_plot <- ggplot(
-  normal_all_data,
+  select_read_threshold_data,
   aes(
     x = target_cumulative_incidence,
     y = optimal_depth,
-    colour = factor(pool_size),
-    group = pool_size
+    colour = factor(batch_size),
+    group = batch_size
   )
 ) +
   geom_line(linewidth = 1, linetype = "solid") +
@@ -280,8 +283,8 @@ seq_c <- 2500 / 1e9
 proc_c <- 2500 / 1e9
 sample_costs <- c(3, 12, 50, 100)
 
-# Create data frame with all combinations of sample costs
-normal_data_with_varied_costs <- normal_all_data %>%
+# Add the cost estimate column
+select_mew_read_threshold_data_with_varied_costs <- select_read_threshold_data %>%
   filter(!hit_ceiling) %>% # Exclude points that didn't converge
   crossing(sample_cost = sample_costs) %>% # Create all combinations
   mutate(
@@ -290,19 +293,19 @@ normal_data_with_varied_costs <- normal_all_data %>%
       cost_of_seq = seq_c,
       cost_of_proc = proc_c,
       cost_of_sample = sample_cost,
-      num_samples = pool_size
+      num_samples = batch_size
     ) *
       52
   )
 
-# Create faceted plot by sample cost
+# Compare costs for different mews with different sample costs
 facet_cost_plot <- ggplot(
-  normal_data_with_varied_costs,
+  select_mew_read_threshold_data_with_varied_costs,
   aes(
     x = target_cumulative_incidence,
     y = total_cost_per_year,
-    colour = factor(pool_size),
-    group = pool_size
+    colour = factor(batch_size),
+    group = batch_size
   )
 ) +
   geom_line(linewidth = 1) +
