@@ -1,6 +1,7 @@
 # Import packages
 # TODO: Look into early stopping
 # TODO: Improve function naming
+# TODO: Make plot style at top
 source("functions.R")
 library(tidyverse)
 library(furrr)
@@ -174,7 +175,7 @@ ggsave("../output/depth_plot.png", depth_plot, width = 8, height = 6)
 
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
-proc_c <- 2500 #TODO: Update to new value
+proc_c <- 2500 #TODO: Update to new value that we decide on
 sample_c <- 15
 
 # Add the cost estimate column
@@ -279,8 +280,6 @@ ggsave(
 
 
 ## Cost analysis for multiple sample costs
-seq_c <- 2500 / 1e9
-proc_c <- 2500 / 1e9
 sample_costs <- c(3, 12, 50, 100)
 
 # Add the cost estimate column
