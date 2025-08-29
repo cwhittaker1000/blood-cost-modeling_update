@@ -47,7 +47,7 @@ run_single_simulation_of_outbreak <- function(
   N,
   max_weeks = 1000
 ) {
-  #' Function to simulate detection timing distribution
+  #' Function to simulate one outbreak
 
   # Run epidemic week by week until detection
   week <- 1
@@ -100,7 +100,7 @@ run_simulations_at_given_sequencing_depth <- function(
   N,
   n_sims = 1000
 ) {
-  #' Function to analyze detection distribution across many simulations
+  #' Function to simulate many outbreaks, then calculate detection probability and summary statistics
 
   # Run many simulations
   results <- replicate(
