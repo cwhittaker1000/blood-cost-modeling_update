@@ -1,0 +1,9 @@
+# Ignore folders
+scripts/archive
+data
+output
+results
+
+
+# Ignore files
+.DS_Store
