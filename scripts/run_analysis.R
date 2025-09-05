@@ -51,18 +51,11 @@ I <- 100 # Number of initial infections
 target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
 batch_sizes <- c(1200, 6000, 12000, 60000, 120000)
 
-# Change color, and keep 1e-3, 1e-8, include actual estimate
-mews <- c(
-  estimate_mew * 1e-3,
-  estimate_mew * 1e-2,
-  estimate_mew * 1e-1,
-  estimate_mew,
-  estimate_mew * 1e1,
-  estimate_mew * 1e2,
-  estimate_mew * 1e3
-)
+# Change color, and keep 1e-3 to 1e-8, include actual estimate
+mews <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, estimate_mew)
+
 # Fix at 100
-read_thresholds <- c(100, 1000, 10000)
+read_thresholds <- c(100)
 
 # Setup for running simulations using multiple cores
 workers <- max(1, parallel::detectCores() - 1)
@@ -81,13 +74,13 @@ param_grid <- expand.grid(
 
 optimal_sequencing_depths_across_param_sweep <- future_apply(
   X = param_grid, # each row is one job
-  MARGIN = 1,
+  MARGIN = 1, # tells the function the dimension along which to apply the function, in this case each row
   FUN = function(row) {
     find_optimal_sequencing_depth_with_binary_search(
       target_cumulative_incidence = row["target_cumulative_incidence"],
       target_prob = 0.95,
       r = r,
-      I1 = I1,
+      I = I,
       P = row["batch_size"],
       theta = row["read_threshold"],
       mew = row["mew"],
@@ -106,8 +99,9 @@ if (!dir.exists(results_dir)) {
 # Save raw results
 saveRDS(
   optimal_sequencing_depths_across_param_sweep,
-  file = file.path(results_dir, "raw_results.rds")
+  file = file.path(results_dir, "simulation_results.rds")
 )
+
 # Extract results from each parameter sweep to get summary for plotting
 opt_seq_depth_summary <- param_grid %>%
   mutate(
