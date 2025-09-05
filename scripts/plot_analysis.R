@@ -1,14 +1,26 @@
 source("functions.R")
-library(tidyverse)
-library(furrr)
 library(scales)
 library(dplyr)
+library(readr)
+library(tidyr)
+library(ggplot2)
 
 # =============================================================================
 # Load data
 # =============================================================================
 
-opt_seq_depth_summary <- read_tsv("../results/summarized_results.tsv")
+opt_seq_depth_summary <- read_tsv(
+  "../results/summarized_simulation_results.tsv"
+)
+
+our_data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE) %>%
+  mutate(hiv_ra = hiv_reads / read_depth)
+
+# Use arithmetic mean to estimate mew
+# 1.26e-5
+estimate_mew <- our_data %>%
+  summarize(arith_mean = mean(hiv_ra)) %>%
+  pull(arith_mean)
 
 # =============================================================================
 # PLOTS
@@ -18,7 +30,7 @@ opt_seq_depth_summary <- read_tsv("../results/summarized_results.tsv")
 # parameter combinations that did not converge (hit our ceiling)
 
 select_mew_read_threshold_data <- opt_seq_depth_summary %>%
-  filter(mew == 1e-6, read_threshold == 100) %>%
+  filter(mew == estimate_mew) %>%
   mutate(
     # Flag values that hit the ceiling
     hit_ceiling = optimal_depth >= 1e12
@@ -52,7 +64,7 @@ depth_plot <- ggplot(
   ) +
   labs(
     title = "",
-    y = "Sequencing depth (Weekly, $)",
+    y = "Weekly sequencing depth",
     x = "Cumulative incidence (%)"
   ) +
   theme_bw(base_size = 15) +
@@ -77,7 +89,7 @@ ggsave("../output/depth_plot.png", depth_plot, width = 8, height = 4)
 ## Cost analysis for a specific depth
 seq_c <- 2500 / 1e9
 proc_c <- 170
-sample_c <- 15
+sample_c <- 1
 
 # Add the cost estimate column
 select_mew_read_threshold_data_with_cost <- select_mew_read_threshold_data %>%
@@ -110,7 +122,7 @@ cost_plot <- ggplot(
     limits = c(0.0001, 0.1)
   ) +
   scale_y_log10(
-    breaks = c(10000000, 100000000),
+    breaks = c(1000000, 10000000, 100000000),
     labels = trans_format("log10", math_format(10^.x))
   ) +
   scale_colour_brewer(
@@ -119,7 +131,7 @@ cost_plot <- ggplot(
   ) +
   labs(
     title = "",
-    y = "Sequencing depth (Weekly, $)",
+    y = "Annual cost ($)",
     x = "Cumulative incidence (%)"
   ) +
   theme_bw(base_size = 15) +
@@ -137,13 +149,11 @@ cost_plot <- ggplot(
     legend.position = c(0.15, 0.7)
   )
 cost_plot
-
 ggsave("../output/cost_plot.png", cost_plot, width = 8, height = 4)
 
 # Only filter by read threshold so that we can show a plot
 # comparing different mews
 select_read_threshold_data <- opt_seq_depth_summary %>%
-  filter(read_threshold == 100) %>%
   mutate(
     # Flag values that hit the ceiling
     hit_ceiling = optimal_depth >= 1e12
@@ -179,7 +189,7 @@ facet_depth_plot <- ggplot(
   ) +
   labs(
     title = "",
-    y = "Sequencing depth (Weekly, $)",
+    y = "Weekly sequencing depth",
     x = "Cumulative incidence (%)"
   ) +
   theme_bw(base_size = 15) +
@@ -194,7 +204,6 @@ facet_depth_plot <- ggplot(
     legend.position = "right"
   )
 facet_depth_plot
-
 ggsave(
   "../output/facet_mew_depth_plot.png",
   facet_depth_plot,
@@ -204,7 +213,7 @@ ggsave(
 
 
 ## Cost analysis for multiple sample costs
-sample_costs <- c(3, 12, 50, 100)
+sample_costs <- c(0.10, 1, 10, 100)
 
 # Add the cost estimate column
 select_mew_read_threshold_data_with_varied_costs <- select_read_threshold_data %>%
@@ -247,7 +256,7 @@ facet_cost_plot <- ggplot(
   facet_grid(sample_cost ~ mew) +
   labs(
     title = "",
-    y = "Sequencing depth (Weekly, $)",
+    y = "Annual cost ($)",
     x = "Cumulative incidence (%)"
   ) +
   theme_bw(base_size = 12) +

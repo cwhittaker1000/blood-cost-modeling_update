@@ -69,7 +69,7 @@ param_grid <- expand.grid(
 )
 
 # =============================================================================
-# RUN EXPENSIVE SIMULATIONS (uncomment to run)
+# RUN EXPENSIVE SIMULATIONS
 # =============================================================================
 
 optimal_sequencing_depths_across_param_sweep <- future_apply(
@@ -118,8 +118,7 @@ opt_seq_depth_summary <- param_grid %>%
 
 # Turn to a tibble for saving
 opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
-write_tsv(opt_seq_depth_summary, "../results/summarized_results.tsv")
-
+write_tsv(opt_seq_depth_summary, "../results/summarized_simulation_results.tsv")
 
 # =============================================================================
 # Data validation
