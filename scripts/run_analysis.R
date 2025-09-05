@@ -1,29 +1,30 @@
 # Import packages
 # TODO: Look into early stopping of binary search if we don't think we'll converge.
+
 source("functions.R")
-library(tidyverse)
-library(furrr)
-library(scales)
+library(readr)
+library(purrr)
 library(future)
 library(future.apply)
 library(dplyr)
+
+# conditional on me keeping plot
+library(ggplot2)
 
 # =============================================================================
 # LOAD IN DATA AND ESTIMATE MEW/ALPHA
 # =============================================================================
 
 # Load in data
-data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE)
-
-our_data <- data %>%
+our_data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE) %>%
   mutate(hiv_ra = hiv_reads / read_depth)
 
-# Use geometric mean to estimate mew
+# Use arithmetic mean to estimate mew
+# 1.26e-5
 estimate_mew <- our_data %>%
-  summarize(geo_mean = exp(mean(log(hiv_ra), na.rm = TRUE))) %>%
-  pull(geo_mean)
+  summarize(arith_mean = mean(hiv_ra)) %>%
+  pull(arith_mean)
 
-# TODO: Question for Dan: Can I use geometric mean for the mean estimate, but arithmetic mean for alpha? ChatGPT says it's wrong as the NB variance will then be biased; however, I know we talk about using geometric mean since there are few samples (~3), so then how would you suggest I estimate the overdispersion parameter.
 # Calculate overdispersion using Coefficient of Variation Squared of relative abundances
 cv_squared <- our_data %>%
   summarize(
@@ -34,6 +35,7 @@ cv_squared <- our_data %>%
   pull(cv_squared)
 # Use CV² directly as overdispersion parameter
 alpha <- cv_squared
+
 
 # =============================================================================
 # DEFINE OTHER PARAMETERS FOR SIMULATIONS
@@ -48,15 +50,18 @@ I <- 100 # Number of initial infections
 # Varying parameters for simulations
 target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
 batch_sizes <- c(1200, 6000, 12000, 60000, 120000)
+
+# Change color, and keep 1e-3, 1e-8, include actual estimate
 mews <- c(
-  estimate_mew * -1e3,
-  estimate_mew * -1e2,
-  estimate_mew * -1e1,
+  estimate_mew * 1e-3,
+  estimate_mew * 1e-2,
+  estimate_mew * 1e-1,
   estimate_mew,
   estimate_mew * 1e1,
   estimate_mew * 1e2,
   estimate_mew * 1e3
 )
+# Fix at 100
 read_thresholds <- c(100, 1000, 10000)
 
 # Setup for running simulations using multiple cores
@@ -120,3 +125,32 @@ opt_seq_depth_summary <- param_grid %>%
 # Turn to a tibble for saving
 opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
 write_tsv(opt_seq_depth_summary, "../results/summarized_results.tsv")
+
+
+# =============================================================================
+# Data validation
+# =============================================================================
+
+our_data %>%
+  summarize(
+    mean = mean(hiv_reads),
+    variance = var(hiv_reads),
+    sd = sd(hiv_reads),
+    cv = sd / mean
+  )
+
+ggplot(aes(y = hiv_reads), data = our_data) +
+  geom_histogram()
+
+D <- our_data %>% pull(read_depth) %>% unique()
+
+# TEMP
+p <- dnbinom(x = seq(4000), size = 1 / alpha, mu = estimate_mew * D)
+
+ggplot(aes(x = seq(4000), y = p), data = NULL) +
+  geom_line() +
+  geom_point(aes(x = hiv_reads, y = 0), our_data)
+
+
+pnbinom(50, size = 1 / alpha, mu = estimate_mew * D)
+# TEMP

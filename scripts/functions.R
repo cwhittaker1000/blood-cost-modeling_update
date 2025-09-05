@@ -1,7 +1,4 @@
 # Import packages
-library(tidyverse)
-library(furrr)
-library(dplyr)
 library(docstring)
 
 # =============================================================================
@@ -55,8 +52,7 @@ run_single_simulation_of_outbreak <- function(
   while (week <= max_weeks && total_pathogen_reads < theta) {
     # Calculate shedding population for current week
     S_t <- calc_shedding(week, I1, r, shedding_weeks)
-    S_t <- round(S_t)
-    S_t <- min(S_t, N) # Cap at population size
+    S_t <- min(S_t, N / 4) # Cap at 1/4 population size since exponential growth slows down much earlier
     if (S_t > 0 && P < N) {
       sampled_shedders <- rbinom(1, P, S_t / N)
       expected_reads <- sampled_shedders / P * mew * D
