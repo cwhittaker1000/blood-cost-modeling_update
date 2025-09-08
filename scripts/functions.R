@@ -258,19 +258,90 @@ find_optimal_sequencing_depth_with_binary_search <- function(
   ))
 }
 
+calc_weekly_operational_cost <- function(
+  P,
+  D,
+  C_samp,
+  C_samp_proc,
+  C_seq,
+  C_data_proc
+) {
+  #' Calculate weekly operational costs (C_weekly_ops)
+  #' @param P Number of sampled individuals
+  #' @param D Sequencing depth in billions of reads
+  #' @param C_samp Cost per sample acquisition
+  #' @param C_samp_proc Cost of sample processing (fixed)
+  #' @param C_seq Cost per billion reads of sequencing
+  #' @param C_data_proc Cost per billion reads of data processing
+
+  return((C_samp * P) + C_samp_proc + D * (C_seq + C_data_proc))
+}
+
+calc_storage_unit_cost <- function(D, C_data_store) {
+  #' Calculate cost to store one week's data for one week
+  #' @param D Sequencing depth in billions of reads
+  #' @param C_data_store Cost per billion reads to store for one week
+
+  return(D * C_data_store)
+}
+
+calc_cumulative_storage_cost <- function(C_storage_unit, weeks = 52) {
+  #' Calculate cumulative storage cost over the year
+  #' Storage accumulates: week 1 data stored for 52 weeks,
+  #' week 2 data for 51 weeks, etc.
+  #' @param C_storage_unit Cost to store one week's data for one week
+  #' @param weeks Number of weeks (default 52)
+
+  # Sum of arithmetic series: sum(1 to 52) = 52 * 53 / 2
+  total_storage_weeks <- weeks * (weeks + 1) / 2
+  return(C_storage_unit * total_storage_weeks)
+}
+
 calc_total_cost_per_year <- function(
   seq_depth,
   cost_of_seq,
   cost_of_proc,
   cost_of_sample,
-  num_samples
+  num_samples,
+  cost_of_data_proc,
+  cost_of_data_store,
+  cost_of_labor
 ) {
   #' Calculate the total cost per year of detecting this HIV-like pathogen
+  #'
+  #' @param seq_depth Sequencing depth (D in billions of reads)
+  #' @param cost_of_seq Cost per billion reads of sequencing (C_seq)
+  #' @param cost_of_proc Cost of sample processing per week (C_samp_proc)
+  #' @param cost_of_sample Cost per sample acquisition (C_samp)
+  #' @param num_samples Number of samples per week (P)
+  #' @param cost_of_data_proc Cost per billion reads of data processing (C_data_proc)
+  #' @param cost_of_data_store Cost per billion reads to store for one week (C_data_store)
+  #' @param cost_of_labor Annual labor cost (C_labor)
 
-  return(
-    ((seq_depth * cost_of_seq) +
-      cost_of_proc +
-      (cost_of_sample * num_samples)) *
-      52
+  # Calculate weekly operational cost (constant each week)
+  C_weekly_ops <- calc_weekly_operational_cost(
+    P = num_samples,
+    D = seq_depth,
+    C_samp = cost_of_sample,
+    C_samp_proc = cost_of_proc,
+    C_seq = cost_of_seq,
+    C_data_proc = cost_of_data_proc
   )
+
+  # Calculate storage unit cost (cost to store one week's data for one week)
+  C_storage_unit <- calc_storage_unit_cost(
+    D = seq_depth,
+    C_data_store = cost_of_data_store
+  )
+
+  # Calculate cumulative storage cost over 52 weeks
+  cumulative_storage <- calc_cumulative_storage_cost(
+    C_storage_unit = C_storage_unit,
+    weeks = 52
+  )
+
+  # Total annual cost = 52 weeks of operations + cumulative storage + labor
+  C_annual <- (C_weekly_ops * 52) + cumulative_storage + cost_of_labor
+
+  return(C_annual)
 }

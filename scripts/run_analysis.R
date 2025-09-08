@@ -49,7 +49,7 @@ I <- 100 # Number of initial infections
 
 # Varying parameters for simulations
 target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
-batch_sizes <- c(1200, 6000, 12000, 60000, 120000)
+batch_sizes <- c(2000, 10000, 50000, 100000)
 
 # Change color, and keep 1e-3 to 1e-8, include actual estimate
 mews <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, estimate_mew)
