@@ -1,9 +1,3 @@
-#' @title Epidemic Detection Simulation Functions
-#' @description Functions for simulating pathogen detection in plasma samples using untargeted metagenomic sequencing.
-#'              Includes outbreak simulation, detection probability calculations, and cost analysis.
-#' @details Based on HIV-like pathogen dynamics with weekly sampling and negative binomial read count modeling.
-
-# Import packages
 library(docstring)
 
 # =============================================================================
@@ -130,7 +124,7 @@ simulate_single_outbreak_on_weekly_basis <- function(
         return(list(
           detected = TRUE,
           detection_week = week_t,
-          cumulative_incidence = 100 * total_infections / total_population_size,  # Percentage (0-100)
+          cumulative_incidence = 100 * total_infections / total_population_size, # Percentage (0-100)
           total_pathogen_reads = total_pathogen_reads
         ))
       }

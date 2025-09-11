@@ -1,8 +1,3 @@
-#' @title Pathogen Detection Simulation Analysis
-#' @description Analyzes minimum sequencing depth required for early pathogen detection across multiple parameters.
-#'              Uses HIV plasma data from Piantadosi et al. 2019 to parameterize viral shedding rates.
-#' @details Performs binary search optimization to find cost-effective sequencing strategies for 95% detection probability.
-
 source("functions.R")
 library(readr)
 library(purrr)
