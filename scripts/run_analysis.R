@@ -1,5 +1,7 @@
-# Import packages
-# TODO: Look into early stopping of binary search if we don't think we'll converge.
+#' @title Pathogen Detection Simulation Analysis
+#' @description Analyzes minimum sequencing depth required for early pathogen detection across multiple parameters.
+#'              Uses HIV plasma data from Piantadosi et al. 2019 to parameterize viral shedding rates.
+#' @details Performs binary search optimization to find cost-effective sequencing strategies for 95% detection probability.
 
 source("functions.R")
 library(readr)
@@ -8,63 +10,62 @@ library(future)
 library(future.apply)
 library(dplyr)
 
-# conditional on me keeping plot
-library(ggplot2)
-
 # =============================================================================
 # LOAD IN DATA AND ESTIMATE MEW/ALPHA
 # =============================================================================
 
-# Load in data
-our_data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE) %>%
+# Load in data from Piantadosi et al. 2019
+# Data contains HIV reads from plasma samples of three individuals within two weeks of infection
+# For individuals with multi-day samples, we used the last day for each individual
+# Sequencing depth was reported as a range (40M-250M reads), but not specified per sample
+# We used the geometric mean of this range (100M reads) for all samples
+data <- read_csv("../data/new-hiv-data.csv", show_col_types = FALSE) %>%
   mutate(hiv_ra = hiv_reads / read_depth)
 
-# Use arithmetic mean to estimate mew
-# 1.26e-5
-estimate_mew <- our_data %>%
-  summarize(arith_mean = mean(hiv_ra)) %>%
-  pull(arith_mean)
+# Parameterize pathogen shedding rate (mu) using arithmetic mean relative abundance
+# mu represents the expected fraction of sequencing reads that are viral in an infected person's sample
+# Calculated as arithmetic mean of (HIV reads / total reads) across three individuals = 1.26 × 10^-5
+# This parameter scales the expected number of viral reads based on how many infected people are sampled
+mu <- data %>%
+  summarize(mean = mean(hiv_ra)) %>%
+  pull(mean)
 
-# Calculate overdispersion using Coefficient of Variation Squared of relative abundances
-cv_squared <- our_data %>%
+# Parameterize overdispersion parameter using Coefficient of Variation Squared of relative abundances
+# cv_squared captures biological and technical variability in viral shedding between individuals
+# Calculated as (SD of relative abundances / mean of relative abundances)^2 = 0.69
+# Used as 1/size parameter in negative binomial distribution to model count overdispersion
+cv_squared <- data %>%
   summarize(
     mean_ra = mean(hiv_ra, na.rm = TRUE),
     sd_ra = sd(hiv_ra, na.rm = TRUE),
     cv_squared = (sd_ra / mean_ra)^2
   ) %>%
   pull(cv_squared)
-# Use CV² directly as overdispersion parameter
-alpha <- cv_squared
-
 
 # =============================================================================
 # DEFINE OTHER PARAMETERS FOR SIMULATIONS
 # =============================================================================
 
 # Constants for simulations
-N <- 3e8 # Approximate US population
-shedding_weeks <- 12 # The number of weeks an infected person sheds
-r <- 0.0155 # weekly growth rate based on HIV
-I <- 100 # Number of initial infections
+total_population_size <- 3e8 # Approximate US population
+number_of_weeks_shedding <- 12 # The number of weeks an infected person sheds
+weekly_growth_rate <- 0.0155 # weekly growth rate based on HIV
+initial_infections <- 100 # Number of initial infections
+read_threshold <- 100 # Number of viral reads required to detect the pathogen
 
 # Varying parameters for simulations
 target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
-batch_sizes <- c(2000, 10000, 50000, 100000)
-
-# Change color, and keep 1e-3 to 1e-8, include actual estimate
-mews <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, estimate_mew)
-
-# Fix at 100
-read_thresholds <- c(100)
+number_of_individuals_sampled <- c(2000, 10000, 50000, 100000)
+# Use range of mu to account for variance in sample processing/library prep and include our original estimate
+mus <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, mu)
 
 # Setup for running simulations using multiple cores
 workers <- max(1, parallel::detectCores() - 1)
 plan(multisession, workers = workers)
 param_grid <- expand.grid(
   target_cumulative_incidence = target_cumulative_incidences,
-  batch_size = batch_sizes,
-  mew = mews,
-  read_threshold = read_thresholds,
+  individuals_sampled = number_of_individuals_sampled,
+  mu = mus,
   stringsAsFactors = FALSE
 )
 
@@ -72,21 +73,21 @@ param_grid <- expand.grid(
 # RUN EXPENSIVE SIMULATIONS
 # =============================================================================
 
-optimal_sequencing_depths_across_param_sweep <- future_apply(
+minimum_sequencing_depth_for_detection_across_params <- future_apply(
   X = param_grid, # each row is one job
   MARGIN = 1, # tells the function the dimension along which to apply the function, in this case each row
   FUN = function(row) {
-    find_optimal_sequencing_depth_with_binary_search(
+    minimize_sequencing_depth_given_detection_constraint_using_binary_search(
       target_cumulative_incidence = row["target_cumulative_incidence"],
       target_prob = 0.95,
-      r = r,
-      I = I,
-      P = row["batch_size"],
-      theta = row["read_threshold"],
-      mew = row["mew"],
-      alpha = alpha,
-      shedding_weeks = shedding_weeks,
-      N = N,
+      weekly_growth_rate = weekly_growth_rate,
+      initial_infections = initial_infections,
+      individuals_sampled = row["individuals_sampled"],
+      read_detection_threshold = read_threshold,
+      mu = row["mu"],
+      cv_squared = cv_squared,
+      number_of_weeks_shedding = number_of_weeks_shedding,
+      total_population_size = total_population_size,
       n_sims = 500
     )
   },
@@ -98,7 +99,7 @@ if (!dir.exists(results_dir)) {
 }
 # Save raw results
 saveRDS(
-  optimal_sequencing_depths_across_param_sweep,
+  minimum_sequencing_depth_for_detection_across_params,
   file = file.path(results_dir, "simulation_results.rds")
 )
 
@@ -106,12 +107,20 @@ saveRDS(
 opt_seq_depth_summary <- param_grid %>%
   mutate(
     optimal_depth = map_dbl(
-      optimal_sequencing_depths_across_param_sweep,
+      minimum_sequencing_depth_for_detection_across_params,
       "optimal_depth"
     ),
     achieved_prob = map_dbl(
-      optimal_sequencing_depths_across_param_sweep,
+      minimum_sequencing_depth_for_detection_across_params,
       "final_prob"
+    ),
+    converged = map_lgl(
+      minimum_sequencing_depth_for_detection_across_params,
+      "converged"
+    ),
+    relative_error = map_dbl(
+      minimum_sequencing_depth_for_detection_across_params,
+      "relative_error"
     ),
     annual_reads = optimal_depth * 52
   )
@@ -119,31 +128,3 @@ opt_seq_depth_summary <- param_grid %>%
 # Turn to a tibble for saving
 opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
 write_tsv(opt_seq_depth_summary, "../results/summarized_simulation_results.tsv")
-
-# =============================================================================
-# Data validation
-# =============================================================================
-
-our_data %>%
-  summarize(
-    mean = mean(hiv_reads),
-    variance = var(hiv_reads),
-    sd = sd(hiv_reads),
-    cv = sd / mean
-  )
-
-ggplot(aes(y = hiv_reads), data = our_data) +
-  geom_histogram()
-
-D <- our_data %>% pull(read_depth) %>% unique()
-
-# TEMP
-p <- dnbinom(x = seq(4000), size = 1 / alpha, mu = estimate_mew * D)
-
-ggplot(aes(x = seq(4000), y = p), data = NULL) +
-  geom_line() +
-  geom_point(aes(x = hiv_reads, y = 0), our_data)
-
-
-pnbinom(50, size = 1 / alpha, mu = estimate_mew * D)
-# TEMP

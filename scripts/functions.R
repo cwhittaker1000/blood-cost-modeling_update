@@ -1,3 +1,8 @@
+#' @title Epidemic Detection Simulation Functions
+#' @description Functions for simulating pathogen detection in plasma samples using untargeted metagenomic sequencing.
+#'              Includes outbreak simulation, detection probability calculations, and cost analysis.
+#' @details Based on HIV-like pathogen dynamics with weekly sampling and negative binomial read count modeling.
+
 # Import packages
 library(docstring)
 
@@ -5,71 +10,132 @@ library(docstring)
 # SINGLE SIMULATION FUNCTIONS
 # =============================================================================
 
-calc_infections <- function(t, I1, r) {
-  #' Calculate the number of infected people at time t
-  I1 * exp(r * (t - 1))
-}
+calc_total_infections_between_weeks <- function(
+  week_start,
+  week_end,
+  initial_infections,
+  weekly_growth_rate
+) {
+  #' Analytically calculate total infections between two weeks (inclusive)
+  #' @param week_start Starting week (inclusive)
+  #' @param week_end Ending week (inclusive)
+  #' @param initial_infections Number of infected people at week 1
+  #' @param weekly_growth_rate Growth rate of the pathogen (r)
+  #' @return Total number of infections from week_start to week_end
 
-calc_shedding <- function(t, I1, r, shedding_weeks) {
-  #' Calculate how many people are shedding viral reads at any time t
-  start_week <- max(1, t - shedding_weeks + 1)
-  end_week <- t
-  weeks <- start_week:end_week
-  infections <- sapply(weeks, function(w) calc_infections(w, I1, r))
-  sum(infections)
-}
-
-calc_cumulative_incidence <- function(week, I1, r, N) {
-  #' Function to calculate cumulative incidence as percentage of population
-
-  # Calculate total infections from week 1 to target week
-  if (r == 0) {
-    total_infections <- I1 * week
-  } else {
-    total_infections <- I1 * (exp(r * week) - 1) / (exp(r) - 1)
+  if (abs(weekly_growth_rate) < 1e-10) {
+    # Handle r ≈ 0 case to avoid numerical issues
+    return(initial_infections * (week_end - week_start + 1))
   }
-  # Return as percentage of population
-  return(100 * total_infections / N)
+  # Geometric series sum: a * (r^n - 1) / (r - 1)
+  # where a = I₁ * exp(r*(week_start-1)) and r = exp(r)
+  exp_r <- exp(weekly_growth_rate)
+  n_terms <- week_end - week_start + 1
+  first_term <- initial_infections * exp(weekly_growth_rate * (week_start - 1))
+  series_sum <- (exp(weekly_growth_rate * n_terms) - 1) / (exp_r - 1)
+  return(first_term * series_sum)
 }
 
-run_single_simulation_of_outbreak <- function(
-  r,
-  I1,
-  P,
-  D,
-  theta,
-  mew,
-  alpha,
-  shedding_weeks,
-  N,
+calc_shedding_in_week_t <- function(
+  week_t,
+  initial_infections,
+  weekly_growth_rate,
+  number_of_weeks_shedding
+) {
+  #' Calculate how many people are shedding viral reads at week t
+  #' @param week_t Week number during outbreak
+  #' @param initial_infections Number of infected people at week 1
+  #' @param weekly_growth_rate Growth rate of the pathogen
+  #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @details People infected in weeks [t-shedding_weeks+1, t] are still shedding at week t
+
+  start_week <- max(1, week_t - number_of_weeks_shedding + 1)
+  end_week <- week_t
+
+  # Use analytical formula instead of numerical summation
+  calc_total_infections_between_weeks(
+    start_week,
+    end_week,
+    initial_infections,
+    weekly_growth_rate
+  )
+}
+
+simulate_single_outbreak_on_weekly_basis <- function(
+  weekly_growth_rate,
+  initial_infections,
+  individuals_sampled,
+  sequencing_depth,
+  read_detection_threshold,
+  mu,
+  cv_squared,
+  number_of_weeks_shedding,
+  total_population_size,
   max_weeks = 1000
 ) {
-  #' Function to simulate one outbreak
+  #' Simulate a single outbreak on a weekly basis
+  #' @param weekly_growth_rate Growth rate of the pathogen
+  #' @param initial_infections Number of infected people at week 1
+  #' @param individuals_sampled Number of people sampled each week
+  #' @param sequencing_depth Sequencing depth
+  #' @param read_detection_threshold Number of viral reads required to detect the pathogen
+  #' @param mu Infected person to relative abundance ratio calculated using the arithmetic mean from untargeted MGS data for this pathogen
+  #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
+  #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param total_population_size Total population size
+  #' @param max_weeks Number of weeks to run simulation for before terminating if the pathogen is not detected
 
   # Run epidemic week by week until detection
-  week <- 1
+  week_t <- 1
   total_pathogen_reads <- 0
-  while (week <= max_weeks && total_pathogen_reads < theta) {
-    # Calculate shedding population for current week
-    S_t <- calc_shedding(week, I1, r, shedding_weeks)
-    S_t <- min(S_t, N / 4) # Cap at 1/4 population size since exponential growth slows down much earlier
-    if (S_t > 0 && P < N) {
-      sampled_shedders <- rbinom(1, P, S_t / N)
-      expected_reads <- sampled_shedders / P * mew * D
-      weekly_reads <- rnbinom(1, size = 1 / alpha, mu = expected_reads)
-      total_pathogen_reads <- total_pathogen_reads + weekly_reads
+  while (
+    week_t <= max_weeks && total_pathogen_reads < read_detection_threshold
+  ) {
+    shedding_population <- calc_shedding_in_week_t(
+      week_t,
+      initial_infections,
+      weekly_growth_rate,
+      number_of_weeks_shedding
+    )
+    # Cap at 1/4 population size since exponential growth slows down much earlier
+    shedding_population <- min(shedding_population, total_population_size / 4)
+    if (
+      shedding_population > 0 && individuals_sampled < total_population_size
+    ) {
+      individuals_shedding_viral_reads <- rbinom(
+        1,
+        individuals_sampled,
+        shedding_population / total_population_size
+      )
+      expected_viral_reads <- (individuals_shedding_viral_reads /
+        individuals_sampled) *
+        mu *
+        sequencing_depth
+      weekly_viral_reads <- rnbinom(
+        1,
+        size = 1 / cv_squared,
+        mu = expected_viral_reads
+      )
+      total_pathogen_reads <- total_pathogen_reads + weekly_viral_reads
       # Detection occurred
-      if (total_pathogen_reads >= theta) {
-        cumulative_incidence <- calc_cumulative_incidence(week, I1, r, N)
+      if (total_pathogen_reads >= read_detection_threshold) {
+        # Calculate total infections from week 1 to detection week
+        total_infections <- calc_total_infections_between_weeks(
+          week_start = 1,
+          week_end = week_t,
+          initial_infections = initial_infections,
+          weekly_growth_rate = weekly_growth_rate
+        )
+        # Return detection results with cumulative incidence as percentage (0-100 scale)
         return(list(
           detected = TRUE,
-          detection_week = week,
-          cumulative_incidence = cumulative_incidence,
+          detection_week = week_t,
+          cumulative_incidence = 100 * total_infections / total_population_size,  # Percentage (0-100)
           total_pathogen_reads = total_pathogen_reads
         ))
       }
     }
-    week <- week + 1
+    week_t <- week_t + 1
   }
   # No detection within max_weeks
   return(list(
@@ -85,263 +151,312 @@ run_single_simulation_of_outbreak <- function(
 # =============================================================================
 
 run_simulations_at_given_sequencing_depth <- function(
-  r,
-  I1,
-  P,
-  D,
-  theta,
-  mew,
-  alpha,
-  shedding_weeks,
-  N,
-  n_sims = 1000
+  weekly_growth_rate,
+  initial_infections,
+  individuals_sampled,
+  sequencing_depth,
+  read_detection_threshold,
+  mu,
+  cv_squared,
+  number_of_weeks_shedding,
+  total_population_size,
+  n_sims
 ) {
-  #' Function to simulate many outbreaks, then calculate detection probability and summary statistics
+  #' Simulate many outbreaks, then calculate detection probability and summary statistics
+  #' @param weekly_growth_rate Growth rate of the pathogen
+  #' @param initial_infections Number of infected people at week 1
+  #' @param individuals_sampled Number of people sampled each week
+  #' @param sequencing_depth Sequencing depth
+  #' @param read_detection_threshold Number of viral reads required to detect the pathogen
+  #' @param mu Infected person to relative abundance ratio calculated using the arithmetic mean from untargeted MGS data for this pathogen
+  #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
+  #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param total_population_size Total population size
+  #' @param n_sims Number of simulations to run at this sequencing depth
 
   # Run many simulations
   results <- replicate(
     n_sims,
     {
-      run_single_simulation_of_outbreak(
-        r,
-        I1,
-        P,
-        D,
-        theta,
-        mew,
-        alpha,
-        shedding_weeks,
-        N
+      simulate_single_outbreak_on_weekly_basis(
+        weekly_growth_rate,
+        initial_infections,
+        individuals_sampled,
+        sequencing_depth,
+        read_detection_threshold,
+        mu,
+        cv_squared,
+        number_of_weeks_shedding,
+        total_population_size,
       )
     },
     simplify = FALSE
   )
-  # Extract detection data
-  detected_sims <- results[sapply(results, function(x) x$detected)]
-  if (length(detected_sims) == 0) {
-    return(list(detection_rate = 0, summary_stats = NA))
-  }
-  # Extract cumulative incidence at detection
-  detection_incidences <- sapply(detected_sims, function(x) {
-    x$cumulative_incidence
+  sims_with_pathogen_detection <- results[sapply(results, function(x) {
+    x$detected
+  })]
+  # Treat non-detections as 100% incidence for unconditional statistics
+  all_incidences <- sapply(results, function(x) {
+    ifelse(x$detected, x$cumulative_incidence, 100)
   })
-  # Calculate summary statistics
+  cumulative_incidences_at_detection <- if (
+    length(sims_with_pathogen_detection) > 0
+  ) {
+    sapply(sims_with_pathogen_detection, function(x) x$cumulative_incidence)
+  } else {
+    numeric(0)
+  }
   summary_stats <- list(
-    detection_rate = length(detected_sims) / n_sims,
-    mean_incidence = mean(detection_incidences),
-    median_incidence = median(detection_incidences),
-    q25_incidence = quantile(detection_incidences, 0.25),
-    q75_incidence = quantile(detection_incidences, 0.75),
-    min_incidence = min(detection_incidences),
-    max_incidence = max(detection_incidences)
+    detection_rate = length(sims_with_pathogen_detection) / n_sims,
+    mean_incidence = mean(all_incidences),
+    median_incidence = median(all_incidences),
+    q25_incidence = quantile(all_incidences, 0.25),
+    q75_incidence = quantile(all_incidences, 0.75),
+    min_incidence = min(all_incidences),
+    max_incidence = max(all_incidences)
   )
   return(list(
     detection_rate = summary_stats$detection_rate,
     summary_stats = summary_stats,
-    raw_data = detection_incidences
+    cumulative_incidences_at_detection = cumulative_incidences_at_detection,
+    n_sims = n_sims
   ))
 }
 
 
-calc_detection_probability_from_all_simulations <- function(
+calc_prob_detection_before_threshold <- function(
   detection_results,
   threshold_incidence
 ) {
-  #' Function to calculate detection probability from saved results
+  #' Calculate probability of detecting pathogen before cumulative incidence exceeds threshold
+  #' @param detection_results Output from run_simulations_at_given_sequencing_depth containing detection data and n_sims
+  #' @param threshold_incidence Cumulative incidence threshold (as percentage 0-100, e.g., 25 for 25%)
 
-  # Calculate P(detect | X% incidence) from saved results
-  # detection_results: output from run_simulations_at_given_sequencing_depth()
-  # threshold_incidence: X% incidence threshold
   if (detection_results$detection_rate == 0) {
     return(0)
   }
-  # Count simulations that detected at or before threshold
-  detected_early <- sum(detection_results$raw_data <= threshold_incidence)
-  total_sims <- length(detection_results$raw_data) /
-    detection_results$detection_rate
-  return(detected_early / total_sims)
+  detected_early <- sum(
+    detection_results$cumulative_incidences_at_detection <= threshold_incidence
+  )
+  return(detected_early / detection_results$n_sims)
 }
 
 # =============================================================================
-# MAIN FUNCTIONS
+# MAIN FUNCTION
 # =============================================================================
 
-find_optimal_sequencing_depth_with_binary_search <- function(
+minimize_sequencing_depth_given_detection_constraint_using_binary_search <- function(
   target_cumulative_incidence,
-  target_prob = 0.95,
-  r,
-  I1,
-  P,
-  theta,
-  mew,
-  alpha,
-  shedding_weeks,
-  N,
-  n_sims = 500,
-  tolerance = 1e4
+  target_prob,
+  weekly_growth_rate,
+  initial_infections,
+  individuals_sampled,
+  sequencing_depth,
+  read_detection_threshold,
+  mu,
+  cv_squared,
+  number_of_weeks_shedding,
+  total_population_size,
+  n_sims,
+  depth_precision = 1e4,
+  relative_error_tolerance = 0.025,
+  max_attempts = 3
 ) {
-  cat(sprintf(
-    "Finding optimal depth for %.1f%% cumulative incidence at %.0f%% detection probability\n",
-    target_cumulative_incidence,
-    target_prob * 100
-  ))
-  #' Using binary search, select a sequencing depth, then run simulations
-  #' check if the target cumulative incidence is reached, if so
-  #' adjust sequencing depth. Continue until bounds for
-  #' binary search are below tolerance threshold.
+  #' Using binary search, find the minimum sequencing depth that achieves the target
+  #' detection probability before the cumulative incidence threshold. Includes retry
+  #' logic with relative error tolerance to handle simulation stochasticity. Will retry
+  #' up to max_attempts times with increasing simulation counts to ensure convergence.
+  #' @param target_cumulative_incidence Cumulative incidence threshold before which we want to detect the pathogen (percentage 0-100)
+  #' @param target_prob Minimum probability of detecting the pathogen before cumulative incidence reaches target_cumulative_incidence (default 0.95 for 95% detection probability)
+  #' @param weekly_growth_rate Growth rate of the pathogen
+  #' @param initial_infections Number of infected people at week 1
+  #' @param individuals_sampled Number of people sampled each week
+  #' @param sequencing_depth Sequencing depth
+  #' @param read_detection_threshold Number of viral reads required to detect the pathogen
+  #' @param mu Infected person to relative abundance ratio calculated using the arithmetic mean from untargeted MGS data for this pathogen
+  #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
+  #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param total_population_size Total population size
+  #' @param n_sims Number of simulations to run at this sequencing depth
+  #' @param relative_error_tolerance Relative error tolerance for accepting final probability (default 0.025 for ±2.5%)
+  #' @param max_attempts Maximum number of attempts to achieve target probability within tolerance (default 3)
 
-  # Binary search bounds
-  low <- 1e4 # Start with very low depth
-  high <- 1e12 # Maximum reasonable depth
-  # Track results for visualization
-  tested_depths <- c()
-  tested_probs <- c()
-  while (high - low > tolerance) {
-    mid <- round((low + high) / 2)
-    cat(sprintf("Testing depth %.2e... ", mid))
-    # Run simulations at this depth
-    results <- run_simulations_at_given_sequencing_depth(
-      r,
-      I1,
-      P,
-      mid,
-      theta,
-      mew,
-      alpha,
-      shedding_weeks,
-      N,
-      n_sims
+  # Store achieved probabilities for error message if needed
+  achieved_probs <- numeric(max_attempts)
+  for (attempt in 1:max_attempts) {
+    # Increase simulations on retry for better accuracy
+    current_n_sims <- n_sims * (2^(attempt - 1))
+    # Run binary search
+    binary_search_lower_bound <- 1e4 # Start with very low depth
+    binary_search_upper_bound <- 1e12 # Maximum reasonable depth
+    curr_seq_depth <- NULL # Initialize outside loop to maintain scope
+    while (
+      binary_search_upper_bound - binary_search_lower_bound > depth_precision
+    ) {
+      curr_seq_depth <- round(
+        (binary_search_lower_bound + binary_search_upper_bound) / 2
+      )
+      # Run simulations at this depth
+      results <- run_simulations_at_given_sequencing_depth(
+        weekly_growth_rate,
+        initial_infections,
+        individuals_sampled,
+        curr_seq_depth,
+        read_detection_threshold,
+        mu,
+        cv_squared,
+        number_of_weeks_shedding,
+        total_population_size,
+        current_n_sims
+      )
+      p_detect <- calc_prob_detection_before_threshold(
+        results,
+        target_cumulative_incidence
+      )
+      if (p_detect >= target_prob) {
+        binary_search_upper_bound <- curr_seq_depth # Can use less sequencing
+      } else {
+        binary_search_lower_bound <- curr_seq_depth # Need more sequencing
+      }
+    }
+    # Run final simulation at selected depth to confirm
+    final_results <- run_simulations_at_given_sequencing_depth(
+      weekly_growth_rate,
+      initial_infections,
+      individuals_sampled,
+      curr_seq_depth,
+      read_detection_threshold,
+      mu,
+      cv_squared,
+      number_of_weeks_shedding,
+      total_population_size,
+      current_n_sims * 2
     )
-    p_detect <- calc_detection_probability_from_all_simulations(
-      results,
+    final_p_detect <- calc_prob_detection_before_threshold(
+      final_results,
       target_cumulative_incidence
     )
-    cat(sprintf("P(detect) = %.2f%%\n", p_detect * 100))
-    # Store for visualization
-    tested_depths <- c(tested_depths, mid)
-    tested_probs <- c(tested_probs, p_detect)
-    if (p_detect >= target_prob) {
-      high <- mid # Can use less sequencing
-    } else {
-      low <- mid # Need more sequencing
+    achieved_probs[attempt] <- final_p_detect
+    # Check if within tolerance
+    relative_error <- abs(final_p_detect - target_prob) / target_prob
+    if (relative_error <= relative_error_tolerance) {
+      return(list(
+        optimal_depth = curr_seq_depth,
+        final_prob = final_p_detect,
+        final_results = final_results,
+        attempt_number = attempt,
+        relative_error = relative_error,
+        converged = TRUE,
+        achieved_probs = achieved_probs[1:attempt]
+      ))
     }
   }
-  # Run final simulation at selected depth to confirm
-  final_results <- run_simulations_at_given_sequencing_depth(
-    r,
-    I1,
-    P,
-    high,
-    theta,
-    mew,
-    alpha,
-    shedding_weeks,
-    N,
-    n_sims * 2
-  )
-  final_p_detect <- calc_detection_probability_from_all_simulations(
-    final_results,
-    target_cumulative_incidence
-  )
-  cat(sprintf("\nOptimal depth: %.2e reads/week\n", high))
-  cat(sprintf(
-    "Final P(detect | %.1f%% incidence) = %.2f%%\n",
-    target_cumulative_incidence,
-    final_p_detect * 100
-  ))
+  # Return best result even if not converged
+  # Use the last attempt's results as the best we could achieve
   return(list(
-    optimal_depth = high,
+    optimal_depth = curr_seq_depth,
     final_prob = final_p_detect,
-    tested_depths = tested_depths,
-    tested_probs = tested_probs,
-    final_results = final_results
+    final_results = final_results,
+    attempt_number = max_attempts,
+    relative_error = relative_error,
+    converged = FALSE,
+    achieved_probs = achieved_probs
   ))
 }
+
+# =============================================================================
+# COST FUNCTIONS
+# =============================================================================
 
 calc_weekly_operational_cost <- function(
-  P,
-  D,
-  C_samp,
-  C_samp_proc,
-  C_seq,
-  C_data_proc
+  num_individuals_sampled_per_week,
+  sequencing_depth_billion_reads_per_week,
+  cost_per_individual_sample,
+  cost_sample_processing_per_week,
+  cost_per_billion_reads_sequencing,
+  cost_per_billion_reads_data_processing
 ) {
-  #' Calculate weekly operational costs (C_weekly_ops)
-  #' @param P Number of sampled individuals
-  #' @param D Sequencing depth in billions of reads
-  #' @param C_samp Cost per sample acquisition
-  #' @param C_samp_proc Cost of sample processing (fixed)
-  #' @param C_seq Cost per billion reads of sequencing
-  #' @param C_data_proc Cost per billion reads of data processing
+  #' Calculate weekly operational costs
+  #' @param num_individuals_sampled_per_week Number of individuals sampled each week
+  #' @param sequencing_depth_billion_reads_per_week Total sequencing depth per week (in billions of reads)
+  #' @param cost_per_individual_sample Cost to acquire one individual sample (unit cost)
+  #' @param cost_sample_processing_per_week Fixed weekly cost for sample processing
+  #' @param cost_per_billion_reads_sequencing Unit cost per billion reads of sequencing
+  #' @param cost_per_billion_reads_data_processing Unit cost per billion reads of data processing
 
-  return((C_samp * P) + C_samp_proc + D * (C_seq + C_data_proc))
+  return(
+    (cost_per_individual_sample * num_individuals_sampled_per_week) +
+      cost_sample_processing_per_week +
+      sequencing_depth_billion_reads_per_week *
+        (cost_per_billion_reads_sequencing +
+          cost_per_billion_reads_data_processing)
+  )
 }
 
-calc_storage_unit_cost <- function(D, C_data_store) {
+calc_storage_unit_cost <- function(
+  sequencing_depth_billion_reads_per_week,
+  cost_per_billion_reads_storage_per_week
+) {
   #' Calculate cost to store one week's data for one week
-  #' @param D Sequencing depth in billions of reads
-  #' @param C_data_store Cost per billion reads to store for one week
+  #' @param sequencing_depth_billion_reads_per_week Weekly sequencing depth (in billions of reads)
+  #' @param cost_per_billion_reads_storage_per_week Unit cost to store one billion reads for one week
 
-  return(D * C_data_store)
+  return(
+    sequencing_depth_billion_reads_per_week *
+      cost_per_billion_reads_storage_per_week
+  )
 }
 
-calc_cumulative_storage_cost <- function(C_storage_unit, weeks = 52) {
+calc_cumulative_storage_cost <- function(
+  cost_to_store_one_week_data_for_one_week,
+  num_weeks_in_period
+) {
   #' Calculate cumulative storage cost over the year
-  #' Storage accumulates: week 1 data stored for 52 weeks,
-  #' week 2 data for 51 weeks, etc.
-  #' @param C_storage_unit Cost to store one week's data for one week
-  #' @param weeks Number of weeks (default 52)
+  #' @param cost_to_store_one_week_data_for_one_week Cost to store one week's worth of data for one week
+  #' @param num_weeks_in_period Number of weeks in the period
 
-  # Sum of arithmetic series: sum(1 to 52) = 52 * 53 / 2
-  total_storage_weeks <- weeks * (weeks + 1) / 2
-  return(C_storage_unit * total_storage_weeks)
+  # Sum of arithmetic series
+  total_storage_weeks <- num_weeks_in_period * (num_weeks_in_period + 1) / 2
+  return(cost_to_store_one_week_data_for_one_week * total_storage_weeks)
 }
 
 calc_total_cost_per_year <- function(
-  seq_depth,
-  cost_of_seq,
-  cost_of_proc,
-  cost_of_sample,
-  num_samples,
-  cost_of_data_proc,
-  cost_of_data_store,
-  cost_of_labor
+  sequencing_depth_billion_reads_per_week,
+  cost_per_billion_reads_sequencing,
+  cost_sample_processing_per_week,
+  cost_per_individual_sample,
+  num_individuals_sampled_per_week,
+  cost_per_billion_reads_data_processing,
+  cost_per_billion_reads_storage_per_week,
+  annual_labor_cost
 ) {
   #' Calculate the total cost per year of detecting this HIV-like pathogen
   #'
-  #' @param seq_depth Sequencing depth (D in billions of reads)
-  #' @param cost_of_seq Cost per billion reads of sequencing (C_seq)
-  #' @param cost_of_proc Cost of sample processing per week (C_samp_proc)
-  #' @param cost_of_sample Cost per sample acquisition (C_samp)
-  #' @param num_samples Number of samples per week (P)
-  #' @param cost_of_data_proc Cost per billion reads of data processing (C_data_proc)
-  #' @param cost_of_data_store Cost per billion reads to store for one week (C_data_store)
-  #' @param cost_of_labor Annual labor cost (C_labor)
+  #' @param sequencing_depth_billion_reads_per_week Weekly sequencing depth (in billions of reads)
+  #' @param cost_per_billion_reads_sequencing Unit cost per billion reads of sequencing
+  #' @param cost_sample_processing_per_week Fixed weekly cost for sample processing
+  #' @param cost_per_individual_sample Unit cost to acquire one individual sample
+  #' @param num_individuals_sampled_per_week Number of individuals sampled each week
+  #' @param cost_per_billion_reads_data_processing Unit cost per billion reads of data processing
+  #' @param cost_per_billion_reads_storage_per_week Unit cost to store one billion reads for one week
+  #' @param annual_labor_cost Total annual labor cost
 
-  # Calculate weekly operational cost (constant each week)
-  C_weekly_ops <- calc_weekly_operational_cost(
-    P = num_samples,
-    D = seq_depth,
-    C_samp = cost_of_sample,
-    C_samp_proc = cost_of_proc,
-    C_seq = cost_of_seq,
-    C_data_proc = cost_of_data_proc
+  cost_weekly_ops <- calc_weekly_operational_cost(
+    num_individuals_sampled_per_week = num_individuals_sampled_per_week,
+    sequencing_depth_billion_reads_per_week = sequencing_depth_billion_reads_per_week,
+    cost_per_individual_sample = cost_per_individual_sample,
+    cost_sample_processing_per_week = cost_sample_processing_per_week,
+    cost_per_billion_reads_sequencing = cost_per_billion_reads_sequencing,
+    cost_per_billion_reads_data_processing = cost_per_billion_reads_data_processing
   )
-
-  # Calculate storage unit cost (cost to store one week's data for one week)
-  C_storage_unit <- calc_storage_unit_cost(
-    D = seq_depth,
-    C_data_store = cost_of_data_store
+  cost_storage_unit <- calc_storage_unit_cost(
+    sequencing_depth_billion_reads_per_week = sequencing_depth_billion_reads_per_week,
+    cost_per_billion_reads_storage_per_week = cost_per_billion_reads_storage_per_week
   )
-
-  # Calculate cumulative storage cost over 52 weeks
   cumulative_storage <- calc_cumulative_storage_cost(
-    C_storage_unit = C_storage_unit,
-    weeks = 52
+    cost_to_store_one_week_data_for_one_week = cost_storage_unit,
+    num_weeks_in_period = 52
   )
-
-  # Total annual cost = 52 weeks of operations + cumulative storage + labor
-  C_annual <- (C_weekly_ops * 52) + cumulative_storage + cost_of_labor
-
-  return(C_annual)
+  cost_annual <- (cost_weekly_ops * 52) + cumulative_storage + annual_labor_cost
+  return(cost_annual)
 }
