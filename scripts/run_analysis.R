@@ -28,7 +28,10 @@ mu <- data %>%
 # Parameterize overdispersion parameter using Coefficient of Variation Squared of relative abundances
 # cv_squared captures biological and technical variability in viral shedding between individuals
 # Calculated as (SD of relative abundances / mean of relative abundances)^2 = 0.69
-# Used as 1/size parameter in negative binomial distribution to model count overdispersion
+# Note: This ignores Poisson noise (which contributes to CV in the data but shouldn't be in the size parameter);
+# however, in our low-abundance regime, this approximation should be fine
+# Used as individuals_shedding/cv_squared as size parameter in negative binomial distribution
+# This scaling accounts for variance reduction when sampling multiple infected individuals
 cv_squared <- data %>%
   summarize(
     mean_ra = mean(hiv_ra, na.rm = TRUE),
@@ -42,14 +45,21 @@ cv_squared <- data %>%
 # =============================================================================
 
 # Constants for simulations
-total_population_size <- 3e8 # Approximate US population
+total_population_size <- 3.4e8 # Approximate US population
 number_of_weeks_shedding <- 12 # The number of weeks an infected person sheds
 weekly_growth_rate <- 0.0155 # weekly growth rate based on HIV
 initial_infections <- 100 # Number of initial infections
 read_threshold <- 100 # Number of viral reads required to detect the pathogen
 
 # Varying parameters for simulations
-target_cumulative_incidences <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1)
+target_cumulative_incidences <- c(
+  0.000001,
+  0.00001,
+  0.00005,
+  0.0001,
+  0.0005,
+  0.001
+)
 number_of_individuals_sampled <- c(2000, 10000, 50000, 100000)
 # Use range of mu to account for variance in sample processing/library prep and include our original estimate
 mus <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, mu)

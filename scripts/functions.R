@@ -18,15 +18,14 @@ calc_total_infections_between_weeks <- function(
   #' @return Total number of infections from week_start to week_end
 
   if (abs(weekly_growth_rate) < 1e-10) {
-    # Handle r ≈ 0 case to avoid numerical issues
+    # Handle weekly_growth_rate ≈ 0 case to avoid numerical issues
     return(initial_infections * (week_end - week_start + 1))
   }
-  # Geometric series sum: a * (r^n - 1) / (r - 1)
-  # where a = I₁ * exp(r*(week_start-1)) and r = exp(r)
-  exp_r <- exp(weekly_growth_rate)
+  # Geometric series sum of infections from week_start to week_end
   n_terms <- week_end - week_start + 1
   first_term <- initial_infections * exp(weekly_growth_rate * (week_start - 1))
-  series_sum <- (exp(weekly_growth_rate * n_terms) - 1) / (exp_r - 1)
+  series_sum <- (exp(weekly_growth_rate * n_terms) - 1) /
+    (exp(weekly_growth_rate) - 1)
   return(first_term * series_sum)
 }
 
@@ -91,8 +90,10 @@ simulate_single_outbreak_on_weekly_basis <- function(
       weekly_growth_rate,
       number_of_weeks_shedding
     )
-    # Cap at 1/4 population size since exponential growth slows down much earlier
-    shedding_population <- min(shedding_population, total_population_size / 4)
+    # Stop at 1/4 population size since exponential growth slows down around then
+    if (shedding_population > total_population_size / 4) {
+      break
+    }
     if (
       shedding_population > 0 && individuals_sampled < total_population_size
     ) {
@@ -105,9 +106,11 @@ simulate_single_outbreak_on_weekly_basis <- function(
         individuals_sampled) *
         mu *
         sequencing_depth
+      # Size parameter scales with number of shedders since more shedders
+      # smooth out individual variation in shedding levels
       weekly_viral_reads <- rnbinom(
         1,
-        size = 1 / cv_squared,
+        size = individuals_shedding_viral_reads / cv_squared,
         mu = expected_viral_reads
       )
       total_pathogen_reads <- total_pathogen_reads + weekly_viral_reads
@@ -120,11 +123,11 @@ simulate_single_outbreak_on_weekly_basis <- function(
           initial_infections = initial_infections,
           weekly_growth_rate = weekly_growth_rate
         )
-        # Return detection results with cumulative incidence as percentage (0-100 scale)
+        # Return detection results with cumulative incidence as proportion
         return(list(
           detected = TRUE,
           detection_week = week_t,
-          cumulative_incidence = 100 * total_infections / total_population_size, # Percentage (0-100)
+          cumulative_incidence = total_infections / total_population_size,
           total_pathogen_reads = total_pathogen_reads
         ))
       }
@@ -224,7 +227,8 @@ calc_prob_detection_before_threshold <- function(
 ) {
   #' Calculate probability of detecting pathogen before cumulative incidence exceeds threshold
   #' @param detection_results Output from run_simulations_at_given_sequencing_depth containing detection data and n_sims
-  #' @param threshold_incidence Cumulative incidence threshold (as percentage 0-100, e.g., 25 for 25%)
+  #' @param threshold_incidence Cumulative incidence threshold (as proportion 0-1)
+  #' @return Numeric value between 0 and 1 representing the probability of early detection
 
   if (detection_results$detection_rate == 0) {
     return(0)
@@ -260,7 +264,7 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
   #' detection probability before the cumulative incidence threshold. Includes retry
   #' logic with relative error tolerance to handle simulation stochasticity. Will retry
   #' up to max_attempts times with increasing simulation counts to ensure convergence.
-  #' @param target_cumulative_incidence Cumulative incidence threshold before which we want to detect the pathogen (percentage 0-100)
+  #' @param target_cumulative_incidence Cumulative incidence threshold before which we want to detect the pathogen (proportion 0-1)
   #' @param target_prob Minimum probability of detecting the pathogen before cumulative incidence reaches target_cumulative_incidence (default 0.95 for 95% detection probability)
   #' @param weekly_growth_rate Growth rate of the pathogen
   #' @param initial_infections Number of infected people at week 1
