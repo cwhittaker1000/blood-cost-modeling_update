@@ -10,20 +10,33 @@ create_outbreak_tracker <- function(
   #' @param initial_infections Number of infected people at week 1
   #' @param weekly_growth_rate Growth rate of the pathogen
   #' @param max_weeks Maximum number of weeks to track
-  #' @param stochastic_growth If TRUE, use Poisson branching process; if FALSE, use deterministic exponential growth
+  #' @param stochastic_growth If TRUE, use Poisson branching process with lifelong
+  #'   infectiousness; if FALSE, use deterministic exponential growth. The per-week
+  #'   transmission rate beta is derived from weekly_growth_rate via the Euler-Lotka
+  #'   equation assuming lifelong infectiousness: beta = exp(r) - 1
   #' @return List of functions: advance_to_week, get_shedding, get_cumulative
   
   new_infections <- numeric(max_weeks)
   new_infections[1] <- initial_infections
+  
+  # Per-week transmission rate derived from Euler-Lotka equation
+  # assuming lifelong infectiousness: beta = exp(r) - 1
+  # The stochastic model needs to decompose the observed growth rate r into a
+  # per-person-per-week transmission rate (beta) and an infectiousness duration.
+  # The deterministic model doesn't need this because r already captures net growth.
+  # Assuming lifelong infectiousness, the Euler-Lotka equation gives beta = exp(r) - 1.
+  # At r = 0.0155, beta ≈ 0.0156: each infected person generates ~1.6% of a new
+  # infection per week, but does so indefinitely, producing the same exponential
+  # growth as the deterministic model in expectation.
+  beta <- exp(weekly_growth_rate) - 1
   
   list(
     advance_to_week = function(week_t) {
       if (week_t == 1) return(invisible(NULL))
       if (new_infections[week_t] != 0) return(invisible(NULL))
       if (stochastic_growth) {
-        new_infections[week_t] <<- rpois(
-          1, new_infections[week_t - 1] * exp(weekly_growth_rate)
-        )
+        cumulative_prev <- sum(new_infections[1:(week_t - 1)])
+        new_infections[week_t] <<- rpois(1, beta * cumulative_prev)
       } else {
         new_infections[week_t] <<- initial_infections *
           exp(weekly_growth_rate * (week_t - 1))
