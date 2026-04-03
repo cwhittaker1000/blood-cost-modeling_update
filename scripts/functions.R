@@ -1,5 +1,44 @@
 library(docstring)
 
+create_outbreak_tracker <- function(
+    initial_infections,
+    weekly_growth_rate,
+    max_weeks,
+    stochastic_growth = FALSE
+) {
+  #' Create an outbreak tracker that manages infection dynamics
+  #' @param initial_infections Number of infected people at week 1
+  #' @param weekly_growth_rate Growth rate of the pathogen
+  #' @param max_weeks Maximum number of weeks to track
+  #' @param stochastic_growth If TRUE, use Poisson branching process; if FALSE, use deterministic exponential growth
+  #' @return List of functions: advance_to_week, get_shedding, get_cumulative
+  
+  new_infections <- numeric(max_weeks)
+  new_infections[1] <- initial_infections
+  
+  list(
+    advance_to_week = function(week_t) {
+      if (week_t == 1) return(invisible(NULL))
+      if (new_infections[week_t] != 0) return(invisible(NULL))
+      if (stochastic_growth) {
+        new_infections[week_t] <<- rpois(
+          1, new_infections[week_t - 1] * exp(weekly_growth_rate)
+        )
+      } else {
+        new_infections[week_t] <<- initial_infections *
+          exp(weekly_growth_rate * (week_t - 1))
+      }
+    },
+    get_shedding = function(week_t, number_of_weeks_shedding) {
+      start <- max(1, week_t - number_of_weeks_shedding + 1)
+      sum(new_infections[start:week_t])
+    },
+    get_cumulative = function(week_t) {
+      sum(new_infections[1:week_t])
+    }
+  )
+}
+
 # =============================================================================
 # SINGLE SIMULATION FUNCTIONS
 # =============================================================================
@@ -55,16 +94,19 @@ calc_shedding_in_week_t <- function(
 }
 
 simulate_single_outbreak_on_weekly_basis <- function(
-  weekly_growth_rate,
-  initial_infections,
-  individuals_sampled,
-  sequencing_depth,
-  read_detection_threshold,
-  mu,
-  cv_squared,
-  number_of_weeks_shedding,
-  total_population_size,
-  max_weeks = 1000
+    weekly_growth_rate,
+    initial_infections,
+    individuals_sampled,
+    sequencing_depth,
+    read_detection_threshold,
+    mu,
+    cv_squared,
+    number_of_weeks_shedding,
+    total_population_size,
+    prop_pop_donating = 1,
+    prob_infected_donates = 1,
+    stochastic_growth = FALSE,
+    max_weeks = 1000
 ) {
   #' Simulate a single outbreak on a weekly basis
   #' @param weekly_growth_rate Growth rate of the pathogen
@@ -76,65 +118,76 @@ simulate_single_outbreak_on_weekly_basis <- function(
   #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
   #' @param total_population_size Total population size
+  #' @param prop_pop_donating Proportion of the total population donating blood
+  #' @param prob_infected_donates Probability that someone who is infected actually donates
+  #' @param stochastic_growth If TRUE, use Poisson branching process for infection dynamics; if FALSE, use deterministic exponential growth
   #' @param max_weeks Number of weeks to run simulation for before terminating if the pathogen is not detected
-
+  
+  # Calculate effective donor pool and validate sampling feasibility
+  effective_donor_pool <- total_population_size * prop_pop_donating
+  if (individuals_sampled >= effective_donor_pool) {
+    stop(sprintf(
+      "individuals_sampled (%s) >= effective donor pool (%s). Reduce individuals_sampled or increase prop_pop_donating.",
+      format(individuals_sampled, big.mark = ","),
+      format(effective_donor_pool, big.mark = ",")
+    ))
+  }
+  
+  # Initialize outbreak tracker
+  tracker <- create_outbreak_tracker(
+    initial_infections = initial_infections,
+    weekly_growth_rate = weekly_growth_rate,
+    max_weeks = max_weeks,
+    stochastic_growth = stochastic_growth
+  )
+  
   # Run epidemic week by week until detection
   week_t <- 1
   total_pathogen_reads <- 0
   while (
     week_t <= max_weeks && total_pathogen_reads < read_detection_threshold
   ) {
-    shedding_population <- calc_shedding_in_week_t(
-      week_t,
-      initial_infections,
-      weekly_growth_rate,
-      number_of_weeks_shedding
-    )
+    tracker$advance_to_week(week_t)
+    shedding_population <- tracker$get_shedding(week_t, number_of_weeks_shedding)
+    
     # Stop at 1/4 population size since exponential growth slows down around then
     if (shedding_population > total_population_size / 4) {
       break
     }
-    if (
-      shedding_population > 0 && individuals_sampled < total_population_size
-    ) {
+    
+    # Adjust shedding population to reflect donor pool dynamics
+    shedding_donors <- shedding_population * prop_pop_donating * prob_infected_donates
+    if (shedding_donors > 0) {
       individuals_shedding_viral_reads <- rbinom(
         1,
         individuals_sampled,
-        shedding_population / total_population_size
+        shedding_donors / effective_donor_pool
       )
-      expected_viral_reads <- (individuals_shedding_viral_reads /
-        individuals_sampled) *
-        mu *
-        sequencing_depth
-      # Size parameter scales with number of shedders since more shedders
-      # smooth out individual variation in shedding levels
-      weekly_viral_reads <- rnbinom(
-        1,
-        size = individuals_shedding_viral_reads / cv_squared,
-        mu = expected_viral_reads
-      )
-      total_pathogen_reads <- total_pathogen_reads + weekly_viral_reads
-      # Detection occurred
-      if (total_pathogen_reads >= read_detection_threshold) {
-        # Calculate total infections from week 1 to detection week
-        total_infections <- calc_total_infections_between_weeks(
-          week_start = 1,
-          week_end = week_t,
-          initial_infections = initial_infections,
-          weekly_growth_rate = weekly_growth_rate
+      if (individuals_shedding_viral_reads > 0) {
+        expected_viral_reads <-
+          (individuals_shedding_viral_reads / individuals_sampled) *
+          mu *
+          sequencing_depth
+        weekly_viral_reads <- rnbinom(
+          1,
+          size = individuals_shedding_viral_reads / cv_squared,
+          mu = expected_viral_reads
         )
-        # Return detection results with cumulative incidence as proportion
-        return(list(
-          detected = TRUE,
-          detection_week = week_t,
-          cumulative_incidence = total_infections / total_population_size,
-          total_pathogen_reads = total_pathogen_reads
-        ))
+        total_pathogen_reads <- total_pathogen_reads + weekly_viral_reads
+        if (total_pathogen_reads >= read_detection_threshold) {
+          total_infections <- tracker$get_cumulative(week_t)
+          return(list(
+            detected = TRUE,
+            detection_week = week_t,
+            cumulative_incidence = total_infections / total_population_size,
+            total_pathogen_reads = total_pathogen_reads
+          ))
+        }
       }
     }
     week_t <- week_t + 1
   }
-  # No detection within max_weeks
+  
   return(list(
     detected = FALSE,
     detection_week = NA,
@@ -157,6 +210,9 @@ run_simulations_at_given_sequencing_depth <- function(
   cv_squared,
   number_of_weeks_shedding,
   total_population_size,
+  prop_pop_donating = 1,
+  prob_infected_donates = 1,
+  stochastic_growth = FALSE,
   n_sims
 ) {
   #' Simulate many outbreaks, then calculate detection probability and summary statistics
@@ -169,6 +225,9 @@ run_simulations_at_given_sequencing_depth <- function(
   #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
   #' @param total_population_size Total population size
+  #' @param prop_pop_donating Proportion of the total population donating blood (default 1)
+  #' @param prob_infected_donates Probability that an infected individual donates, relative to the general donation probability (default 1)
+  #' @param stochastic_growth If TRUE, use Poisson branching process for infection dynamics; if FALSE, use deterministic exponential growth (default FALSE)
   #' @param n_sims Number of simulations to run at this sequencing depth
 
   # Run many simulations
@@ -176,15 +235,18 @@ run_simulations_at_given_sequencing_depth <- function(
     n_sims,
     {
       simulate_single_outbreak_on_weekly_basis(
-        weekly_growth_rate,
-        initial_infections,
-        individuals_sampled,
-        sequencing_depth,
-        read_detection_threshold,
-        mu,
-        cv_squared,
-        number_of_weeks_shedding,
-        total_population_size,
+        weekly_growth_rate = weekly_growth_rate,
+        initial_infections = initial_infections,
+        individuals_sampled = individuals_sampled,
+        sequencing_depth = sequencing_depth,
+        read_detection_threshold = read_detection_threshold,
+        mu = mu,
+        cv_squared = cv_squared,
+        number_of_weeks_shedding = number_of_weeks_shedding,
+        total_population_size = total_population_size,
+        prop_pop_donating = prop_pop_donating,
+        prob_infected_donates = prob_infected_donates,
+        stochastic_growth = stochastic_growth
       )
     },
     simplify = FALSE
@@ -242,19 +304,20 @@ calc_prob_detection_before_threshold <- function(
 # =============================================================================
 # MAIN FUNCTION
 # =============================================================================
-
 minimize_sequencing_depth_given_detection_constraint_using_binary_search <- function(
   target_cumulative_incidence,
   target_prob,
   weekly_growth_rate,
   initial_infections,
   individuals_sampled,
-  sequencing_depth,
   read_detection_threshold,
   mu,
   cv_squared,
   number_of_weeks_shedding,
   total_population_size,
+  prop_pop_donating = 1,
+  prob_infected_donates = 1,
+  stochastic_growth = FALSE,
   n_sims,
   depth_precision = 1e4,
   relative_error_tolerance = 0.025,
@@ -269,12 +332,14 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
   #' @param weekly_growth_rate Growth rate of the pathogen
   #' @param initial_infections Number of infected people at week 1
   #' @param individuals_sampled Number of people sampled each week
-  #' @param sequencing_depth Sequencing depth
   #' @param read_detection_threshold Number of viral reads required to detect the pathogen
   #' @param mu Infected person to relative abundance ratio calculated using the arithmetic mean from untargeted MGS data for this pathogen
   #' @param cv_squared Coefficient of Variation Squared of relative abundance from untargeted MGS data for this pathogen (using the same data as mu)
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
   #' @param total_population_size Total population size
+  #' @param prop_pop_donating Proportion of the total population donating blood (default 1)
+  #' @param prob_infected_donates Probability that an infected individual donates, relative to the general donation probability (default 1)
+  #' @param stochastic_growth If TRUE, use Poisson branching process for infection dynamics; if FALSE, use deterministic exponential growth (default FALSE)
   #' @param n_sims Number of simulations to run at this sequencing depth
   #' @param relative_error_tolerance Relative error tolerance for accepting final probability (default 0.025 for ±2.5%)
   #' @param max_attempts Maximum number of attempts to achieve target probability within tolerance (default 3)
@@ -296,16 +361,19 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
       )
       # Run simulations at this depth
       results <- run_simulations_at_given_sequencing_depth(
-        weekly_growth_rate,
-        initial_infections,
-        individuals_sampled,
-        curr_seq_depth,
-        read_detection_threshold,
-        mu,
-        cv_squared,
-        number_of_weeks_shedding,
-        total_population_size,
-        current_n_sims
+        weekly_growth_rate = weekly_growth_rate,
+        initial_infections = initial_infections,
+        individuals_sampled = individuals_sampled,
+        sequencing_depth = curr_seq_depth,
+        read_detection_threshold = read_detection_threshold,
+        mu = mu,
+        cv_squared = cv_squared,
+        number_of_weeks_shedding = number_of_weeks_shedding,
+        total_population_size = total_population_size,
+        prop_pop_donating = prop_pop_donating,
+        prob_infected_donates = prob_infected_donates,
+        stochastic_growth = stochastic_growth,
+        n_sims = current_n_sims
       )
       p_detect <- calc_prob_detection_before_threshold(
         results,
@@ -319,16 +387,19 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
     }
     # Run final simulation at selected depth to confirm
     final_results <- run_simulations_at_given_sequencing_depth(
-      weekly_growth_rate,
-      initial_infections,
-      individuals_sampled,
-      curr_seq_depth,
-      read_detection_threshold,
-      mu,
-      cv_squared,
-      number_of_weeks_shedding,
-      total_population_size,
-      current_n_sims * 2
+      weekly_growth_rate = weekly_growth_rate,
+      initial_infections = initial_infections,
+      individuals_sampled = individuals_sampled,
+      sequencing_depth = curr_seq_depth,
+      read_detection_threshold = read_detection_threshold,
+      mu = mu,
+      cv_squared = cv_squared,
+      number_of_weeks_shedding = number_of_weeks_shedding,
+      total_population_size = total_population_size,
+      prop_pop_donating = prop_pop_donating,
+      prob_infected_donates = prob_infected_donates,
+      stochastic_growth = stochastic_growth,
+      n_sims = current_n_sims * 2
     )
     final_p_detect <- calc_prob_detection_before_threshold(
       final_results,
