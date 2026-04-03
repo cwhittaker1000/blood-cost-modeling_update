@@ -4,42 +4,40 @@ create_outbreak_tracker <- function(
     initial_infections,
     weekly_growth_rate,
     max_weeks,
-    stochastic_growth = FALSE
+    stochastic_growth = FALSE,
+    infectious_weeks = 12
 ) {
   #' Create an outbreak tracker that manages infection dynamics
   #' @param initial_infections Number of infected people at week 1
   #' @param weekly_growth_rate Growth rate of the pathogen
   #' @param max_weeks Maximum number of weeks to track
-  #' @param stochastic_growth If TRUE, use Poisson branching process with lifelong
-  #'   infectiousness; if FALSE, use deterministic exponential growth. The per-week
-  #'   transmission rate beta is derived from weekly_growth_rate via the Euler-Lotka
-  #'   equation assuming lifelong infectiousness: beta = exp(r) - 1
+  #' @param stochastic_growth If TRUE, use Poisson process around the renewal
+  #'   equation; if FALSE, use deterministic renewal equation
+  #' @param infectious_weeks Number of weeks an infected person remains infectious
+  #'   and contributes to new infections (default 12)
   #' @return List of functions: advance_to_week, get_shedding, get_cumulative
   
   new_infections <- numeric(max_weeks)
   new_infections[1] <- initial_infections
   
-  # Per-week transmission rate derived from Euler-Lotka equation
-  # assuming lifelong infectiousness: beta = exp(r) - 1
-  # The stochastic model needs to decompose the observed growth rate r into a
-  # per-person-per-week transmission rate (beta) and an infectiousness duration.
-  # The deterministic model doesn't need this because r already captures net growth.
-  # Assuming lifelong infectiousness, the Euler-Lotka equation gives beta = exp(r) - 1.
-  # At r = 0.0155, beta ≈ 0.0156: each infected person generates ~1.6% of a new
-  # infection per week, but does so indefinitely, producing the same exponential
-  # growth as the deterministic model in expectation.
-  beta <- exp(weekly_growth_rate) - 1
+  # Per-week transmission rate derived from the Euler-Lotka equation:
+  # given observed exponential growth rate r and infectious duration D,
+  # beta is the constant per-person-per-week transmission rate that
+  # reproduces growth rate r when each person is infectious for D weeks.
+  # beta = 1 / sum(exp(-r * k) for k in 1:D)
+  beta <- 1 / sum(exp(-weekly_growth_rate * (1:infectious_weeks)))
   
   list(
     advance_to_week = function(week_t) {
       if (week_t == 1) return(invisible(NULL))
       if (new_infections[week_t] != 0) return(invisible(NULL))
+      # Sum of infections in the previous infectious_weeks window
+      infectious_start <- max(1, week_t - infectious_weeks)
+      infectious_pop <- sum(new_infections[infectious_start:(week_t - 1)])
       if (stochastic_growth) {
-        cumulative_prev <- sum(new_infections[1:(week_t - 1)])
-        new_infections[week_t] <<- rpois(1, beta * cumulative_prev)
+        new_infections[week_t] <<- rpois(1, beta * infectious_pop)
       } else {
-        new_infections[week_t] <<- initial_infections *
-          exp(weekly_growth_rate * (week_t - 1))
+        new_infections[week_t] <<- beta * infectious_pop
       }
     },
     get_shedding = function(week_t, number_of_weeks_shedding) {
@@ -51,7 +49,7 @@ create_outbreak_tracker <- function(
     }
   )
 }
-
+  
 # =============================================================================
 # SINGLE SIMULATION FUNCTIONS
 # =============================================================================
