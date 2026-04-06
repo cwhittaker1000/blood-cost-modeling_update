@@ -72,6 +72,11 @@ create_outbreak_tracker <- function(
   new_infections <- numeric(max_weeks)
   new_infections[1] <- initial_infections
   
+  # Track which weeks have been computed, so advance_to_week is safely
+  # idempotent even when a stochastic draw legitimately produces 0
+  computed <- logical(max_weeks)
+  computed[1] <- TRUE
+  
   # Per-week transmission rate for renewal models
   beta <- R0 / infectious_weeks
   
@@ -87,7 +92,7 @@ create_outbreak_tracker <- function(
   list(
     advance_to_week = function(week_t) {
       if (week_t == 1) return(invisible(NULL))
-      if (new_infections[week_t] != 0) return(invisible(NULL))
+      if (computed[week_t]) return(invisible(NULL))
       
       if (growth_model == "deterministic_simple") {
         new_infections[week_t] <<- initial_infections *
@@ -103,6 +108,8 @@ create_outbreak_tracker <- function(
         infectious_pop <- sum(new_infections[infectious_start:(week_t - 1)])
         new_infections[week_t] <<- rpois(1, beta * infectious_pop)
       }
+      
+      computed[week_t] <<- TRUE
     },
     get_shedding = function(week_t, number_of_weeks_shedding) {
       start <- max(1, week_t - number_of_weeks_shedding + 1)
@@ -110,6 +117,12 @@ create_outbreak_tracker <- function(
     },
     get_cumulative = function(week_t) {
       sum(new_infections[1:week_t])
+    },
+    get_infectious = function(week_t) {
+      #' Get the currently infectious population (used for extinction checks).
+      #' This is the sum of new infections in the last infectious_weeks weeks.
+      start <- max(1, week_t - infectious_weeks + 1)
+      sum(new_infections[start:week_t])
     }
   )
 }
@@ -127,6 +140,7 @@ simulate_single_outbreak_on_weekly_basis <- function(
     mu,
     cv_squared,
     number_of_weeks_shedding,
+    infectious_weeks,
     total_population_size,
     prop_pop_donating = 1,
     prob_infected_donates = 1,
@@ -143,6 +157,9 @@ simulate_single_outbreak_on_weekly_basis <- function(
   #' @param mu Infected person to relative abundance ratio
   #' @param cv_squared Coefficient of Variation Squared of relative abundance
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param infectious_weeks Duration of infectiousness in weeks (D), controls
+  #'   transmission dynamics in the renewal equation. Can differ from
+  #'   number_of_weeks_shedding.
   #' @param total_population_size Total population size
   #' @param prop_pop_donating Proportion of the total population donating blood (default 1)
   #' @param prob_infected_donates Probability that an infected individual donates (default 1)
@@ -164,13 +181,14 @@ simulate_single_outbreak_on_weekly_basis <- function(
   
   retries <- 0
   repeat {
-    # Initialize outbreak tracker
+    # Initialize outbreak tracker with infectious_weeks controlling
+    # transmission dynamics (separate from shedding duration)
     tracker <- create_outbreak_tracker(
       initial_infections = initial_infections,
       R0 = R0,
       max_weeks = max_weeks,
       growth_model = growth_model,
-      infectious_weeks = number_of_weeks_shedding
+      infectious_weeks = infectious_weeks
     )
     
     # Run epidemic week by week until detection
@@ -182,14 +200,19 @@ simulate_single_outbreak_on_weekly_basis <- function(
       week_t <= max_weeks && total_pathogen_reads < read_detection_threshold
     ) {
       tracker$advance_to_week(week_t)
-      shedding_population <- tracker$get_shedding(week_t, number_of_weeks_shedding)
       
-      # Check for stochastic extinction: if no one is shedding after week 1,
-      # the outbreak has died out and cannot recover
-      if (growth_model == "stochastic_renewal" && week_t > 1 && shedding_population == 0) {
-        outbreak_extinct <- TRUE
-        break
+      # Check for stochastic extinction using the infectious population
+      # (not the shedding population), since transmission depends on
+      # infectious_weeks, which may differ from number_of_weeks_shedding
+      if (growth_model == "stochastic_renewal" && week_t > 1) {
+        infectious_pop <- tracker$get_infectious(week_t)
+        if (infectious_pop == 0) {
+          outbreak_extinct <- TRUE
+          break
+        }
       }
+      
+      shedding_population <- tracker$get_shedding(week_t, number_of_weeks_shedding)
       
       # Stop at 1/4 population size since exponential growth slows down around then
       if (shedding_population > total_population_size / 4) {
@@ -268,6 +291,7 @@ run_simulations_at_given_sequencing_depth <- function(
     mu,
     cv_squared,
     number_of_weeks_shedding,
+    infectious_weeks,
     total_population_size,
     prop_pop_donating = 1,
     prob_infected_donates = 1,
@@ -283,6 +307,8 @@ run_simulations_at_given_sequencing_depth <- function(
   #' @param mu Infected person to relative abundance ratio
   #' @param cv_squared Coefficient of Variation Squared of relative abundance
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param infectious_weeks Duration of infectiousness in weeks (D), controls
+  #'   transmission dynamics. Can differ from number_of_weeks_shedding.
   #' @param total_population_size Total population size
   #' @param prop_pop_donating Proportion of the total population donating blood (default 1)
   #' @param prob_infected_donates Probability that an infected individual donates (default 1)
@@ -302,6 +328,7 @@ run_simulations_at_given_sequencing_depth <- function(
         mu = mu,
         cv_squared = cv_squared,
         number_of_weeks_shedding = number_of_weeks_shedding,
+        infectious_weeks = infectious_weeks,
         total_population_size = total_population_size,
         prop_pop_donating = prop_pop_donating,
         prob_infected_donates = prob_infected_donates,
@@ -372,6 +399,7 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
     mu,
     cv_squared,
     number_of_weeks_shedding,
+    infectious_weeks,
     total_population_size,
     prop_pop_donating = 1,
     prob_infected_donates = 1,
@@ -392,6 +420,8 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
   #' @param mu Infected person to relative abundance ratio
   #' @param cv_squared Coefficient of Variation Squared of relative abundance
   #' @param number_of_weeks_shedding Number of weeks an infected person sheds viral reads
+  #' @param infectious_weeks Duration of infectiousness in weeks (D), controls
+  #'   transmission dynamics. Can differ from number_of_weeks_shedding.
   #' @param total_population_size Total population size
   #' @param prop_pop_donating Proportion of the total population donating blood (default 1)
   #' @param prob_infected_donates Probability that an infected individual donates (default 1)
@@ -423,6 +453,7 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
         mu = mu,
         cv_squared = cv_squared,
         number_of_weeks_shedding = number_of_weeks_shedding,
+        infectious_weeks = infectious_weeks,
         total_population_size = total_population_size,
         prop_pop_donating = prop_pop_donating,
         prob_infected_donates = prob_infected_donates,
@@ -448,6 +479,7 @@ minimize_sequencing_depth_given_detection_constraint_using_binary_search <- func
       mu = mu,
       cv_squared = cv_squared,
       number_of_weeks_shedding = number_of_weeks_shedding,
+      infectious_weeks = infectious_weeks,
       total_population_size = total_population_size,
       prop_pop_donating = prop_pop_donating,
       prob_infected_donates = prob_infected_donates,
