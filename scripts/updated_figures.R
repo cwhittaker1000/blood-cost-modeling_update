@@ -1,3 +1,12 @@
+## To Do:
+# 1) Change to be Boston rather than national; change population, set prop pop donating to something sensible
+# 2) Switch to the deterministic (maybe stochastic) renewal equation model (see how results compare)#
+# 3) Sensitivity analysis over the probability that someone donates blood whilst poorly
+# 4) Sensitivity analysis over number of shedding weeks
+# 5) Sensitivity analysis over read threshold
+# 6) Sensitivity over infectious weeks
+# 7) Mu uncertainty in first two figures
+
 library(readr)
 library(dplyr)
 library(ggplot2)
