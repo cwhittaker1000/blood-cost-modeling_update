@@ -1,17 +1,17 @@
 ## To Do:
-# 1) Change to be Boston rather than national; change population, set prop pop donating to something sensible
+# 1) DONE Change to be Boston rather than national; change population, set prop pop donating to something sensible
+# 3) DONE Sensitivity analysis over the probability that someone donates blood whilst poorly
 # 2) Switch to the deterministic (maybe stochastic) renewal equation model (see how results compare)#
-# 3) Sensitivity analysis over the probability that someone donates blood whilst poorly
-# 4) Sensitivity analysis over number of shedding weeks
-# 5) Sensitivity analysis over read threshold
-# 6) Sensitivity over infectious weeks
+# 6) Sensitivity over infectious weeks (only relevant for deterministic renewal model)
 # 7) Mu uncertainty in first two figures
 
-library(readr)
-library(dplyr)
-library(ggplot2)
-library(scales)
-library(cowplot)
+# Optional:
+# 4) Sensitivity analysis over number of shedding weeks
+# 5) Sensitivity analysis over read threshold
+
+
+# Loading required libraries
+library(readr); library(dplyr); library(ggplot2); library(scales); library(cowplot)
 
 # Load the results produced by run_analysis.R
 opt_seq_depth_summary <- read_tsv(
@@ -151,14 +151,14 @@ p_a2
 # Points are shaped by "Parameterization": the HIV estimate (1.26e-5) vs the
 # synthetic sweep values. In the current grid the HIV mu sits alongside the
 # synthetic points on the same curve.
-b_ci_target <- 1e-4
+b_ci_target <- 5e-4
 
 table(opt_seq_depth_summary$mu)
 
 opt_seq_depth_summary$target_cumulative_incidence
 
 b_data <- opt_seq_depth_summary %>%
-  filter(target_cumulative_incidence == 1e-04) %>%
+  filter(target_cumulative_incidence == b_ci_target) %>%
   filter(converged == TRUE) %>%
   mutate(
     parameterization = ifelse(
