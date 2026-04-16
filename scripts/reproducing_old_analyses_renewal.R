@@ -1,5 +1,6 @@
 ## Renewal-model version of reproducing_old_figures.R
-## Reads the renewal-model results and produces the same a1/a2/b panels.
+## Reads the renewal-model results and produces the same a1/a2/b panels,
+## plus a sensitivity panel on prob_infected_donates.
 
 library(readr)
 library(dplyr)
@@ -11,21 +12,33 @@ source("scripts/functions.R")
 
 # Load the results produced by run_analysis_renewal.R
 opt_seq_depth_summary <- read_tsv(
-  "results/summarized_simulation_results_renewal.tsv",
+  "results/summarized_simulation_results_renewal_probdonates.tsv",
   show_col_types = FALSE
 )
 
 hiv_mu <- 1.26e-5
 
 # =============================================================================
+# STANDARDISED COLOUR PALETTE FOR individuals_sampled
+# =============================================================================
+# Define one palette keyed by individuals_sampled value, used across a1/a2/b
+# so the same n always maps to the same colour. Built from scales::hue_pal()
+# (ggplot's default) so we don't change the existing colour scheme — we just
+# anchor it.
+n_levels  <- as.character(sort(unique(opt_seq_depth_summary$individuals_sampled)))
+n_palette <- scales::hue_pal()(length(n_levels))
+names(n_palette) <- n_levels
+
+# =============================================================================
 # PANEL A1: weekly sequencing depth vs cumulative incidence
 # =============================================================================
 a1_data <- opt_seq_depth_summary %>%
   filter(abs(mu - hiv_mu) < 1e-7) %>%
+  filter(prob_infected_donates == 1) %>%
   filter(converged == TRUE) %>%
   mutate(individuals_sampled = factor(
     individuals_sampled,
-    levels = sort(unique(individuals_sampled))
+    levels = n_levels
   ))
 
 p_a1 <- ggplot(
@@ -47,11 +60,11 @@ p_a1 <- ggplot(
     labels = label_log(base = 10),
     breaks = 10^(9:13)
   ) +
+  scale_colour_manual(values = n_palette) +
   labs(
     x = "Cumulative incidence",
     y = "Weekly sequencing depth",
-    colour = "# of individuals",
-    title = "a1 (renewal model)"
+    colour = "# of individuals"
   ) +
   theme_minimal(base_size = 13) +
   theme(
@@ -62,6 +75,68 @@ p_a1 <- ggplot(
   )
 
 p_a1
+
+# =============================================================================
+# PANEL A3: prob_infected_donates sensitivity at fixed n = 50,000
+# Matched colour gradient: grey (at 0.25) -> n=50,000's colour (at 1.00)
+# =============================================================================
+fixed_n <- 50000
+
+a3_data <- opt_seq_depth_summary %>%
+  filter(abs(mu - hiv_mu) < 1e-7) %>%
+  filter(individuals_sampled == fixed_n) %>%
+  filter(converged == TRUE) %>%
+  mutate(prob_infected_donates = factor(
+    prob_infected_donates,
+    levels = sort(unique(prob_infected_donates))
+  ))
+
+# Build discrete palette: grey at lowest prob, n=50000's colour at highest
+prob_levels      <- levels(a3_data$prob_infected_donates)
+n_prob_levels    <- length(prob_levels)
+fixed_n_colour   <- n_palette[as.character(fixed_n)]
+prob_palette     <- colorRampPalette(c("grey85", fixed_n_colour))(n_prob_levels)
+names(prob_palette) <- prob_levels
+
+p_a3_line2 <- ggplot(
+  a3_data,
+  aes(
+    x      = target_cumulative_incidence,
+    y      = optimal_depth,
+    colour = prob_infected_donates,
+    group  = prob_infected_donates
+  )
+) +
+  geom_line(linewidth = 0.6) +
+  geom_point(size = 2) +
+  scale_x_log10(
+    labels = function(x) paste0(signif(x * 100, 2), "%"),
+    breaks = c(1e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3)
+  ) +
+  scale_y_log10(
+    labels = label_log(base = 10),
+    breaks = 10^(8:13)
+  ) +
+  scale_colour_manual(
+    values = prob_palette,
+    guide  = guide_legend(
+      override.aes = list(size = 4, shape = 15)  # filled squares
+    )
+  ) +
+  labs(
+    x      = "Cumulative incidence",
+    y      = "Weekly sequencing depth",
+    colour = "P(infected\ndonates)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position   = c(0.85, 0.72),
+    legend.background = element_rect(fill = "white", colour = "grey80"),
+    plot.title        = element_text(face = "bold", hjust = 0),
+    axis.text.x       = element_text(angle = 45, hjust = 1)
+  )
+
+p_a3_line2
 
 # =============================================================================
 # COST PARAMETERS
@@ -95,10 +170,11 @@ opt_seq_depth_summary <- opt_seq_depth_summary %>%
 # =============================================================================
 a2_data <- opt_seq_depth_summary %>%
   filter(abs(mu - hiv_mu) < 1e-7) %>%
+  filter(prob_infected_donates == 1) %>%
   filter(converged == TRUE) %>%
   mutate(individuals_sampled = factor(
     individuals_sampled,
-    levels = sort(unique(individuals_sampled))
+    levels = n_levels
   ))
 
 p_a2 <- ggplot(
@@ -120,11 +196,11 @@ p_a2 <- ggplot(
     labels = label_log(base = 10),
     breaks = 10^(6:9)
   ) +
+  scale_colour_manual(values = n_palette) +
   labs(
     x = "Cumulative incidence",
     y = "Annual cost ($)",
-    colour = "# of individuals",
-    title = "a2 (renewal model)"
+    colour = "# of individuals"
   ) +
   theme_minimal(base_size = 13) +
   theme(
@@ -142,6 +218,7 @@ b_ci_target <- 1e-4
 
 b_data <- opt_seq_depth_summary %>%
   filter(target_cumulative_incidence == b_ci_target) %>%
+  filter(prob_infected_donates == 1) %>%
   filter(converged == TRUE) %>%
   mutate(
     parameterization = ifelse(
@@ -149,7 +226,7 @@ b_data <- opt_seq_depth_summary %>%
     ),
     individuals_sampled = factor(
       individuals_sampled,
-      levels = sort(unique(individuals_sampled))
+      levels = n_levels
     )
   ) %>%
   filter(individuals_sampled != 2e+03)
@@ -166,6 +243,7 @@ p_b <- ggplot(
   geom_line(linewidth = 0.6) +
   geom_point(aes(shape = parameterization), size = 2.5) +
   scale_shape_manual(values = c("HIV estimate" = 16, "Simulated" = 15)) +
+  scale_colour_manual(values = n_palette, drop = FALSE) +
   scale_x_log10(
     labels = label_log(base = 10),
     breaks = 10^(-8:-3)
@@ -178,8 +256,7 @@ p_b <- ggplot(
     x = "RA of target pathogen",
     y = sprintf("Annual cost ($), CI = %s%%", signif(b_ci_target * 100, 2)),
     colour = "# of individuals",
-    shape = "Parameterization",
-    title = "b (renewal model)"
+    shape = "Parameterization"
   ) +
   theme_minimal(base_size = 13) +
   theme(
@@ -193,4 +270,6 @@ p_b <- ggplot(
 
 p_b
 
-cowplot::plot_grid(p_a1, p_a2, p_b, nrow = 1)
+cowplot::plot_grid(p_a1, p_a3_line2,
+                   p_a2, p_b, nrow = 2,
+                   labels = c("a", "b", "c", "d"))

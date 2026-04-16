@@ -54,7 +54,7 @@ number_of_individuals_sampled <- c(2000, 10000, 50000, 100000)
 mus <- c(1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, mu)
 
 # Range of values assuming different probability of donating conditional on being infected
-prob_infected_donate_values <- seq(0.25, 1, 0.25)
+prob_infected_donate_values <- c(0.1, 0.2, 0.25, 0.3333333, 0.5, 1)
 
 # Setup for running simulations using multiple cores
 workers <- max(1, parallel::detectCores() - 2)
@@ -109,7 +109,7 @@ if (!dir.exists(results_dir)) {
 
 saveRDS(
   minimum_sequencing_depth_for_detection_across_params,
-  file = file.path(results_dir, "simulation_results_renewal.rds")
+  file = file.path(results_dir, "simulation_results_renewal_probdonates.rds")
 )
 
 # Extract results from each parameter sweep to get summary for plotting
@@ -135,4 +135,4 @@ opt_seq_depth_summary <- param_grid %>%
   )
 
 opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
-write_tsv(opt_seq_depth_summary, "results/summarized_simulation_results_renewal.tsv")
+write_tsv(opt_seq_depth_summary, "results/summarized_simulation_results_renewal_probdonates.tsv")
