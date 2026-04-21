@@ -35,7 +35,7 @@ read_threshold <- 100          # Number of viral reads required to detect the pa
 # this choice DOES affect the trajectory of the renewal model: it controls the
 # length of the "cliff" during which seed infections build up to exponential
 # growth.
-infectious_weeks <- number_of_weeks_shedding
+infectious_weeks <- 52 # number_of_weeks_shedding
 doubling_time <- log(2) / weekly_growth_rate
 R0 <- calc_R0_from_doubling_time(doubling_time, infectious_weeks)
 # Sanity check: tracker should derive back the same r we started with
@@ -109,7 +109,7 @@ if (!dir.exists(results_dir)) {
 
 saveRDS(
   minimum_sequencing_depth_for_detection_across_params,
-  file = file.path(results_dir, "simulation_results_renewal_probdonates.rds")
+  file = file.path(results_dir, "simulation_results_renewal_probdonates_52weekSensitivity.rds")
 )
 
 # Extract results from each parameter sweep to get summary for plotting
@@ -135,4 +135,4 @@ opt_seq_depth_summary <- param_grid %>%
   )
 
 opt_seq_depth_summary <- as_tibble(opt_seq_depth_summary)
-write_tsv(opt_seq_depth_summary, "results/summarized_simulation_results_renewal_probdonates.tsv")
+write_tsv(opt_seq_depth_summary, "results/summarized_simulation_results_renewal_probdonates_52weekSensitivity.tsv")
